@@ -6,5 +6,7 @@ matplotlib
 pillow
 pyyaml
 tqdm
-scikit-learn
 jupyter
+opencv-python-headless
+pandas
+multimatch_gaze

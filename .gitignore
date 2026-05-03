@@ -6,11 +6,23 @@ dist/
 build/
 .venv/
 venv/
-data/
-checkpoints/
+/data/
+/checkpoints/
+/outputs/
 *.pt
 *.pth
 *.ckpt
 wandb/
 .ipynb_checkpoints/
 .DS_Store
+
+# LaTeX intermediate files (track .tex / .bib / .pdf only)
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.log
+*.out
+*.run.xml
+*.toc
+*.synctex.gz

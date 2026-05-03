@@ -17,9 +17,9 @@ dependencies:
   # Scientific
   - numpy
   - scipy
-  - scikit-learn
   - matplotlib
   - pillow
+  - pandas
 
   # Config & logging
   - pyyaml
@@ -32,3 +32,8 @@ dependencies:
 
   # Dev tools
   - pip
+
+  - pip:
+      # Vision / eye-tracking (not on conda)
+      - opencv-python-headless
+      - multimatch_gaze   # canonical Dewhurst-2012 MultiMatch (audit §4.4)
