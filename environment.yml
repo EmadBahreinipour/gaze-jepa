@@ -1,34 +1,22 @@
-# environment.yml — Conda environment for GazeJEPA
-# Create with:  conda env create -f environment.yml
-# Activate:     conda activate gaze-jepa
-
-name: gaze-jepa
+name: gazejepa
 channels:
   - pytorch
-  - nvidia
   - conda-forge
   - defaults
-
 dependencies:
-  - python=3.11
-  - pytorch>=2.0
-  - torchvision>=0.15
-
-  # Scientific
+  - python=3.10
+  - pytorch
+  - torchvision
   - numpy
   - scipy
-  - scikit-learn
+  - opencv
   - matplotlib
   - pillow
-
-  # Config & logging
-  - pyyaml
-  - tqdm
-
-  # Notebook
+  - scikit-learn
   - jupyter
-  - ipykernel
-  - ipywidgets
-
-  # Dev tools
+  - tqdm
+  - pyyaml
+  - pandas
   - pip
+  - pip:
+    - einops
