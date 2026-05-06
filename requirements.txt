@@ -4,9 +4,11 @@ numpy
 scipy
 matplotlib
 pillow
+pandas
 pyyaml
 tqdm
 jupyter
 opencv-python-headless
-pandas
+scikit-learn
+einops
 multimatch_gaze

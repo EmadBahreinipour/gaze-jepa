@@ -20,6 +20,7 @@ dependencies:
   - matplotlib
   - pillow
   - pandas
+  - scikit-learn
 
   # Config & logging
   - pyyaml
@@ -37,3 +38,4 @@ dependencies:
       # Vision / eye-tracking (not on conda)
       - opencv-python-headless
       - multimatch_gaze   # canonical Dewhurst-2012 MultiMatch (audit §4.4)
+      - einops            # used by Arash's saliency models

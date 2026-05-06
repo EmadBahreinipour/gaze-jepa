@@ -1,3 +1,4 @@
+# Python
 __pycache__/
 *.pyc
 *.pyo
@@ -6,15 +7,26 @@ dist/
 build/
 .venv/
 venv/
+
+# Notebook
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+
+# Editor / agent
+.env
+
+# Project data & artefacts
 /data/
 /checkpoints/
 /outputs/
+*.npy
+*.pkl
 *.pt
 *.pth
 *.ckpt
 wandb/
-.ipynb_checkpoints/
-.DS_Store
 
 # LaTeX intermediate files (track .tex / .bib / .pdf only)
 *.aux
