@@ -1,4 +1,5 @@
-"""Random saliency baseline — equivalent to what SaccadeJEPA actually does.
+"""
+Random saliency baseline — equivalent to what SaccadeJEPA actually does.
 
 SaccadeJEPA's SaccadeCropper samples translation uniformly at random:
     torch.empty(b, 2).uniform_(-max_translation_frac, max_translation_frac)

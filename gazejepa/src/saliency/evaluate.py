@@ -116,5 +116,5 @@ def run_full_comparison(data_root: str,
 
 if __name__ == "__main__":
     import sys
-    data_root = sys.argv[1] if len(sys.argv) > 1 else "data/find_dataset"
+    data_root = sys.argv[1] if len(sys.argv) > 1 else "f:/university/milan/NI/info/Gaze_Jepa/find_dataset"
     run_full_comparison(data_root)

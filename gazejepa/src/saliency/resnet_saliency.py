@@ -104,7 +104,7 @@ class ResNetSaliency(nn.Module, SaliencySource):
     @classmethod
     def load(cls, path: str, device: str = "cpu") -> "ResNetSaliency":
         model = cls(pretrained=False)
-        model.load_state_dict(torch.load(path, map_location=device))
+        model.load_state_dict(torch.load(path, map_location=device, weights_only=True))
         model.eval()
         return model
 

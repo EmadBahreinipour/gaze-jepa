@@ -1,22 +1,14 @@
-"""Learned saliency — small CNN trained on FIND fixation heatmaps.
+"""FINDSaliencyDataset — PyTorch Dataset for FIND fixation heatmaps.
 
-Architecture: 4 conv layers with GroupNorm + GELU, 1× stride-2 downsampling,
-output upsampled back to input resolution and softmax-normalized.
-~50K parameters. Intentionally small: the goal is data-driven saliency from
-the FIND training split, not a general-purpose saliency model.
-
-Also contains FINDSaliencyDataset, the PyTorch Dataset for training.
+Also exports IMAGE_TRANSFORM (ImageNet normalization) used by all saliency models.
 """
 
 import os
 import pickle
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
 from torch.utils.data import Dataset
 from torchvision import transforms
-from . import SaliencySource
 
 
 # ImageNet normalization used for all model inputs
@@ -27,51 +19,6 @@ IMAGE_TRANSFORM = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
 ])
-
-
-class LearnedSaliency(nn.Module, SaliencySource):
-    """Small 4-layer CNN saliency predictor.
-
-    Input:  (B, 3, H, W) ImageNet-normalized tensor
-    Output: (B, H, W) softmax-normalized saliency map (sums to 1 per sample)
-    """
-
-    name = "learned"
-
-    def __init__(self, in_channels: int = 3, hidden: int = 32):
-        nn.Module.__init__(self)
-        self.net = nn.Sequential(
-            nn.Conv2d(in_channels, hidden, 3, padding=1),
-            nn.GroupNorm(8, hidden), nn.GELU(),
-            nn.Conv2d(hidden, hidden * 2, 3, padding=1, stride=2),
-            nn.GroupNorm(8, hidden * 2), nn.GELU(),
-            nn.Conv2d(hidden * 2, hidden * 2, 3, padding=1),
-            nn.GroupNorm(8, hidden * 2), nn.GELU(),
-            nn.Conv2d(hidden * 2, 1, 1),
-        )
-
-    def forward(self, images: torch.Tensor) -> torch.Tensor:
-        """Returns logits at half resolution, shape (B, H/2, W/2)."""
-        return self.net(images).squeeze(1)
-
-    def predict(self, images: torch.Tensor) -> torch.Tensor:
-        logits = self.forward(images)
-        logits = F.interpolate(logits.unsqueeze(1), size=images.shape[-2:],
-                               mode="bilinear", align_corners=False).squeeze(1)
-        B = logits.shape[0]
-        flat = logits.view(B, -1).softmax(dim=1)
-        return flat.view(B, *logits.shape[-2:])
-
-    def save(self, path: str) -> None:
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        torch.save(self.state_dict(), path)
-
-    @classmethod
-    def load(cls, path: str, device: str = "cpu") -> "LearnedSaliency":
-        model = cls()
-        model.load_state_dict(torch.load(path, map_location=device))
-        model.eval()
-        return model
 
 
 class FINDSaliencyDataset(Dataset):
@@ -152,14 +99,7 @@ class FINDSaliencyDataset(Dataset):
 
 
 if __name__ == "__main__":
-    model = LearnedSaliency()
-    n_params = sum(p.numel() for p in model.parameters())
-    print(f"LearnedSaliency params: {n_params:,}")
-
     x = torch.rand(2, 3, 224, 224)
-    out = model.predict(x)
-    print(f"Output shape: {out.shape}")
-    print(f"Sum per sample: {out.sum(dim=(1,2))}")
-    assert out.shape == (2, 224, 224)
-    assert torch.allclose(out.sum(dim=(1, 2)), torch.ones(2), atol=1e-5)
-    print("LearnedSaliency OK")
+    t = IMAGE_TRANSFORM(np.zeros((224, 224, 3), dtype=np.uint8))
+    print(f"IMAGE_TRANSFORM output shape: {t.shape}")
+    print("learned.py OK")
