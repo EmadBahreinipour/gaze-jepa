@@ -55,22 +55,17 @@ DEFAULT_HEATMAP_SIGMA: int = 30
 
 # ---- Path resolution -------------------------------------------------------
 
-def resolve_data_root(explicit: str | os.PathLike[str] | None = None) -> Path:
-    """Resolve the FIND data root.
+_REPO_DATA_ROOT = Path(__file__).resolve().parent.parent.parent / "data" / "find_dataset"
 
-    Priority: explicit arg → ``$FIND_DATA_ROOT`` env var → error.
-    No hardcoded fallback (per MIGRATION_AUDIT §4.11).
-    """
+
+def resolve_data_root(explicit: str | os.PathLike[str] | None = None) -> Path:
+    """Resolve the FIND data root."""
     if explicit is not None:
         root = Path(explicit)
-    else:
-        env = os.environ.get("FIND_DATA_ROOT")
-        if not env:
-            raise RuntimeError(
-                "FIND data root not set. Pass `data_root=` to the loader "
-                "functions or set the FIND_DATA_ROOT environment variable."
-            )
+    elif env := os.environ.get("FIND_DATA_ROOT"):
         root = Path(env)
+    else:
+        root = _REPO_DATA_ROOT
     if not root.is_dir():
         raise FileNotFoundError(f"FIND data root does not exist: {root}")
     return root

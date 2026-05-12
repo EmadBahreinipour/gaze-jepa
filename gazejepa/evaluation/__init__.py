@@ -7,6 +7,10 @@ from gazejepa.evaluation.evaluate import (
     collect_video_saccade_amplitudes,
     evaluate_gaze_loop,
 )
+from gazejepa.evaluation.saliency_comparison import (
+    evaluate_source,
+    run_full_comparison,
+)
 
 __all__ = [
     "collect_generated_amplitudes",
@@ -14,4 +18,6 @@ __all__ = [
     "collect_paired_human_amplitudes",
     "collect_video_saccade_amplitudes",
     "evaluate_gaze_loop",
+    "evaluate_source",
+    "run_full_comparison",
 ]

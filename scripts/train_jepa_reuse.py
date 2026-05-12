@@ -53,7 +53,13 @@ from gazejepa.data import (
     resolve_data_root,
 )
 from gazejepa.jepa_reuse import make_gaze_jepa
-from gazejepa.saliency import IttiKochSaliency
+from gazejepa.saliency import (
+    CenterBiasSaliency,
+    IttiKochSaliency,
+    LocalContrastSaliency,
+    RandomSaliency,
+    ResNetSaliency,
+)
 
 
 # --------------------------------------------------------------------- #
@@ -224,6 +230,27 @@ class FindFramesDataset(Dataset):
 # --------------------------------------------------------------------- #
 
 
+def build_saliency_source(args: argparse.Namespace):
+    name = args.saliency
+    if name == "resnet":
+        ckpt = Path(args.resnet_checkpoint)
+        if not ckpt.exists():
+            raise FileNotFoundError(
+                f"--saliency resnet requires a trained checkpoint at "
+                f"{ckpt} (override with --resnet-checkpoint)."
+            )
+        return ResNetSaliency.load(str(ckpt))
+    if name == "itti_koch":
+        return IttiKochSaliency()
+    if name == "local_contrast":
+        return LocalContrastSaliency()
+    if name == "center_bias":
+        return CenterBiasSaliency(size=(args.image_size, args.image_size))
+    if name == "random":
+        return RandomSaliency()
+    raise ValueError(f"unknown --saliency: {name}")
+
+
 def pick_device(arg: str) -> torch.device:
     if arg != "auto":
         return torch.device(arg)
@@ -279,7 +306,8 @@ def train(args: argparse.Namespace) -> dict:
     )
 
     # Model.
-    saliency = IttiKochSaliency()
+    saliency = build_saliency_source(args)
+    print(f"Saliency source: {type(saliency).__name__}")
     model = make_gaze_jepa(
         saliency_source=saliency,
         full_input_size=(args.image_size, args.image_size),
@@ -470,6 +498,23 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--n-fixations", type=int, default=5)
     p.add_argument("--ior-sigma", type=float, default=20.0)
     p.add_argument("--ior-decay", type=float, default=0.7)
+
+    # Saliency source (Arash's package).
+    p.add_argument(
+        "--saliency",
+        default="resnet",
+        choices=["resnet", "itti_koch", "local_contrast", "center_bias", "random"],
+        help=(
+            "Saliency source for GazeCropper. Default 'resnet' uses Arash's "
+            "trained ResNetSaliency checkpoint (best AUC on FIND); the "
+            "other options are for ablations or as fallbacks."
+        ),
+    )
+    p.add_argument(
+        "--resnet-checkpoint",
+        default="checkpoints/resnet_saliency_best.pt",
+        help="Path to ResNetSaliency checkpoint when --saliency resnet.",
+    )
 
     # Training schedule.
     p.add_argument("--n-epochs", type=int, default=3,

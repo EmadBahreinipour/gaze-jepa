@@ -1,4 +1,9 @@
-"""Uniform random saliency (lower-bound baseline).
+"""Uniform random saliency — SaccadeJEPA's implicit baseline made explicit.
+
+Upstream SaccadeJEPA samples its saccade translation uniformly at random
+(``torch.empty(b, 2).uniform_(-max_frac, max_frac)``); this class makes the
+"random" condition concrete so it can sit alongside center-bias / classical
+/ learned in Arash's four-source comparison.
 
 No internal generator: seed via ``torch.manual_seed`` before calling.
 """
@@ -11,7 +16,7 @@ from gazejepa.saliency.base import SaliencySource, assert_saliency_contract
 
 
 class RandomSaliency(SaliencySource):
-    """Per-pixel uniform random saliency."""
+    """Per-pixel uniform random saliency. Lower-bound for the comparison study."""
 
     name = "random"
 

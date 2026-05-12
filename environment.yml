@@ -15,7 +15,7 @@ dependencies:
   - torchvision>=0.15
 
   # Scientific
-  - numpy
+  - numpy<2          # torch 2.2.x ABI requires numpy 1.x
   - scipy
   - matplotlib
   - pillow
@@ -36,6 +36,6 @@ dependencies:
 
   - pip:
       # Vision / eye-tracking (not on conda)
-      - opencv-python-headless
+      - opencv-contrib-python-headless   # ships cv2.saliency for IttiKochSaliency
       - multimatch_gaze   # canonical Dewhurst-2012 MultiMatch (audit §4.4)
       - einops            # used by Arash's saliency models

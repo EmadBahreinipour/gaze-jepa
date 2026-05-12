@@ -1,6 +1,6 @@
 torch>=2.0
 torchvision>=0.15
-numpy
+numpy<2          # torch 2.2.x ABI was built for numpy 1.x; numpy 2.x breaks torch.from_numpy
 scipy
 matplotlib
 pillow
@@ -8,7 +8,7 @@ pandas
 pyyaml
 tqdm
 jupyter
-opencv-python-headless
+opencv-contrib-python-headless
 scikit-learn
 einops
 multimatch_gaze

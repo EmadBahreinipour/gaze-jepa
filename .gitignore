@@ -14,7 +14,7 @@ venv/
 # OS
 .DS_Store
 
-# Editor / agent
+# Local config
 .env
 
 # Project data & artefacts

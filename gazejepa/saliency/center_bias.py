@@ -1,37 +1,155 @@
-"""Image-centered Gaussian saliency (FIND-style center prior)."""
+"""Image-centered Gaussian saliency (FIND-style center prior).
+
+Two flavours, both from Arash's saliency-comparison study:
+
+- :class:`CenterBiasSaliency` — fixed parametric Gaussian, no data needed.
+  Precomputed at ``image_size × image_size`` with σ = ``image_size / 4``;
+  the :class:`SaliencySource` ABC resamples to whatever resolution callers
+  need.
+- :class:`CenterBiasDataFit` — average fixation heatmap over the FIND training
+  split. Standard "data-fit center bias" from the saliency literature;
+  expected to outperform the parametric variant on FIND because the dataset
+  is face-heavy and the fitted bias captures the true face-centered pattern.
+"""
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
+import numpy as np
 import torch
 
 from gazejepa.saliency.base import SaliencySource, assert_saliency_contract
 
 
 class CenterBiasSaliency(SaliencySource):
-    """Image-centered Gaussian saliency. ``sigma_frac`` scales sigma per axis."""
+    """Fixed 2D Gaussian centered on the image, σ = ``image_size / 4``."""
 
-    name = "center_bias"
+    name = "center_bias_parametric"
 
-    def __init__(self, sigma_frac: float = 0.25):
-        if sigma_frac <= 0:
-            raise ValueError(f"sigma_frac must be positive, got {sigma_frac}")
-        self.sigma_frac = float(sigma_frac)
+    def __init__(self, image_size: int = 224):
+        if image_size <= 0:
+            raise ValueError(f"image_size must be positive, got {image_size}")
+        self.image_size = int(image_size)
+        self._map = self._build_map(self.image_size)
+
+    @staticmethod
+    def _build_map(size: int) -> torch.Tensor:
+        cx = cy = size / 2.0
+        sigma = size / 4.0
+        ys, xs = torch.meshgrid(
+            torch.arange(size, dtype=torch.float32),
+            torch.arange(size, dtype=torch.float32),
+            indexing="ij",
+        )
+        g = torch.exp(-((xs - cx) ** 2 + (ys - cy) ** 2) / (2.0 * sigma ** 2))
+        return g / g.sum()
 
     def _compute(self, images: torch.Tensor) -> torch.Tensor:
-        b, _, h, w = images.shape
-        device = images.device
-        cy, cx = h / 2.0, w / 2.0
-        sy, sx = h * self.sigma_frac, w * self.sigma_frac
-        ys = torch.arange(h, device=device, dtype=torch.float32).view(-1, 1)
-        xs = torch.arange(w, device=device, dtype=torch.float32).view(1, -1)
-        gauss = torch.exp(
-            -((xs - cx) ** 2 / (2.0 * sx ** 2) + (ys - cy) ** 2 / (2.0 * sy ** 2))
+        b = images.shape[0]
+        m = self._map.to(images.device)
+        return m.unsqueeze(0).expand(b, -1, -1).contiguous()
+
+
+# Alias for callers that prefer Arash's original name.
+CenterBiasParametric = CenterBiasSaliency
+
+
+class CenterBiasDataFit(SaliencySource):
+    """Mean fixation heatmap over the FIND training split.
+
+    On first instantiation, the cache file is loaded if present; otherwise
+    call :meth:`build_and_cache` once to compute it (10–20 min on a laptop).
+    The cached map is stored at native ``image_size × image_size`` and the
+    ``SaliencySource`` contract resamples to whatever resolution callers need.
+    """
+
+    name = "center_bias_data_fit"
+
+    def __init__(
+        self,
+        cache_path: str | os.PathLike[str] = "outputs/saliency/center_bias_train_avg.npy",
+        image_size: int = 224,
+    ):
+        if image_size <= 0:
+            raise ValueError(f"image_size must be positive, got {image_size}")
+        self.cache_path = Path(cache_path)
+        self.image_size = int(image_size)
+        self._map: torch.Tensor | None = None
+
+    def build_and_cache(
+        self,
+        data_root: str | os.PathLike[str],
+        sigma: float = 20.0,
+        frame_stride: int = 10,
+        min_observers: int = 5,
+        seed: int = 42,
+    ) -> None:
+        """Compute and cache the average training-split fixation heatmap."""
+        from gazejepa.data import (
+            get_frame_count,
+            get_frame_fixations,
+            get_split,
+            load_fixations,
+            make_heatmap,
+            rescale_fixations,
         )
-        return gauss.unsqueeze(0).expand(b, -1, -1).contiguous()
+
+        train_ids = get_split(data_root, seed=seed)["train"]
+        accumulator = np.zeros(
+            (self.image_size, self.image_size), dtype=np.float64,
+        )
+        count = 0
+
+        for vid in train_ids:
+            fix_array = load_fixations(data_root, vid)
+            n_frames = get_frame_count(data_root, vid)
+            for f in range(0, n_frames, frame_stride):
+                fixations = get_frame_fixations(fix_array, f)
+                if len(fixations) < min_observers:
+                    continue
+                fixations_scaled = rescale_fixations(
+                    fixations,
+                    src_size=(1280, 720),
+                    dst_size=(self.image_size, self.image_size),
+                )
+                heatmap = make_heatmap(
+                    fixations_scaled, self.image_size, self.image_size, sigma=sigma,
+                )
+                accumulator += heatmap
+                count += 1
+
+        if count == 0:
+            raise RuntimeError(
+                "No frames passed the min-observer filter; cannot fit center bias."
+            )
+
+        avg = accumulator / count
+        avg /= max(avg.sum(), 1e-12)
+        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+        np.save(self.cache_path, avg.astype(np.float32))
+        self._map = torch.from_numpy(avg.astype(np.float32))
+
+    def _ensure_loaded(self, device: torch.device) -> torch.Tensor:
+        if self._map is None:
+            if not self.cache_path.is_file():
+                raise FileNotFoundError(
+                    f"CenterBiasDataFit cache missing at {self.cache_path}; "
+                    "call build_and_cache(data_root) once first."
+                )
+            arr = np.load(self.cache_path)
+            self._map = torch.from_numpy(arr.astype(np.float32))
+        return self._map.to(device)
+
+    def _compute(self, images: torch.Tensor) -> torch.Tensor:
+        b = images.shape[0]
+        m = self._ensure_loaded(images.device)
+        return m.unsqueeze(0).expand(b, -1, -1).contiguous()
 
 
 if __name__ == "__main__":
-    src = CenterBiasSaliency(sigma_frac=0.25)
+    src = CenterBiasSaliency(image_size=64)
     img = torch.zeros(2, 3, 64, 96)
     sal = src(img)
     assert_saliency_contract(sal, batch_size=2)
@@ -43,5 +161,8 @@ if __name__ == "__main__":
     assert abs(py - h // 2) <= 1 and abs(px - w // 2) <= 1, (
         f"Argmax {(px, py)} not at center {(w // 2, h // 2)}"
     )
-    print(f"CenterBiasSaliency OK — shape={tuple(sal.shape)}, "
-          f"argmax at (x={px}, y={py}) ≈ center ({w // 2}, {h // 2})")
+    print(
+        f"CenterBiasSaliency OK — shape={tuple(sal.shape)}, "
+        f"argmax at (x={px}, y={py}) ≈ center ({w // 2}, {h // 2}); "
+        f"alias CenterBiasParametric={CenterBiasParametric is CenterBiasSaliency}"
+    )

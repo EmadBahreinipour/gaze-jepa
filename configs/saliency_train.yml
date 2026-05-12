@@ -1,10 +1,13 @@
+# Hyperparameters for scripts/train_saliency.py.
+
 data_root: "data/find_dataset"
-model_type: "resnet"
+model_type: "resnet"          # "resnet" | "learned"
 
 image_size: 224
 heatmap_sigma: 20.0
 frame_subsample: 10
 min_observers: 5
+seed: 42
 
 batch_size: 16
 num_workers: 2
@@ -13,5 +16,5 @@ epochs: 20
 lr: 0.001
 weight_decay: 0.0001
 
-checkpoint_dir: "checkpoints"
-log_dir: "outputs"
+checkpoint_dir: "checkpoints/saliency"
+log_dir: "outputs/saliency"

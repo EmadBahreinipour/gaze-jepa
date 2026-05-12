@@ -58,7 +58,58 @@ from gazejepa.evaluation.evaluate import (  # noqa: E402
     evaluate_gaze_loop,
 )
 from gazejepa.evaluation.scanpath_metrics import multimatch_backend  # noqa: E402
-from gazejepa.saliency import IttiKochSaliency  # noqa: E402
+from gazejepa.saliency import (  # noqa: E402
+    CenterBiasParametric,
+    IttiKochSaliency,
+    LocalContrastSaliency,
+    RandomSaliency,
+    ResNetSaliency,
+    SaliencySource,
+)
+
+
+# --------------------------------------------------------------------- #
+# Saliency factory                                                       #
+# --------------------------------------------------------------------- #
+
+
+_SALIENCY_CHOICES = (
+    "resnet", "itti_koch", "local_contrast", "center_bias", "random",
+)
+
+
+def build_saliency(
+    name: str,
+    image_size: int,
+    resnet_checkpoint: str,
+    device: str | torch.device = "cpu",
+) -> SaliencySource:
+    """Instantiate a saliency source by name.
+
+    The default ``resnet`` source loads Arash's trained
+    ``ResNetSaliency`` checkpoint, matching the training-time default
+    used by ``scripts/train_jepa_reuse.py``.
+    """
+    name = name.lower()
+    if name == "resnet":
+        ckpt = Path(resnet_checkpoint).expanduser().resolve()
+        if not ckpt.is_file():
+            raise FileNotFoundError(
+                f"ResNet saliency checkpoint not found: {ckpt}. Train it with "
+                f"scripts/train_saliency.py or pass --resnet-checkpoint."
+            )
+        return ResNetSaliency.load(str(ckpt), device=device)
+    if name == "itti_koch":
+        return IttiKochSaliency()
+    if name == "local_contrast":
+        return LocalContrastSaliency()
+    if name == "center_bias":
+        return CenterBiasParametric(size=image_size)
+    if name == "random":
+        return RandomSaliency()
+    raise ValueError(
+        f"Unknown saliency source {name!r}; choose from {_SALIENCY_CHOICES}."
+    )
 
 
 # --------------------------------------------------------------------- #
@@ -75,7 +126,7 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--data-root", default=None,
-        help="FIND dataset root (defaults to $FIND_DATA_ROOT).",
+        help="FIND dataset root (else $FIND_DATA_ROOT or repo default).",
     )
     p.add_argument(
         "--output-dir", default="outputs/jepa_reuse/eval",
@@ -103,6 +154,24 @@ def parse_args() -> argparse.Namespace:
             "RNG seed for the cropper. Should match the training seed "
             "(default: %(default)s) so the evaluated scanpaths reproduce "
             "what the trained model's GazeCropper sampled."
+        ),
+    )
+    p.add_argument(
+        "--saliency",
+        default="resnet",
+        choices=_SALIENCY_CHOICES,
+        help=(
+            "Saliency source feeding the cropper (default: %(default)s, "
+            "matching the training-time default in train_jepa_reuse.py)."
+        ),
+    )
+    p.add_argument(
+        "--resnet-checkpoint",
+        default="checkpoints/resnet_saliency_best.pt",
+        help=(
+            "Checkpoint for --saliency resnet "
+            "(default: %(default)s, matching train_jepa_reuse.py; "
+            "ignored for other saliency sources)."
         ),
     )
     return p.parse_args()
@@ -207,6 +276,7 @@ def save_amplitude_histogram(
     rows_per_split: dict[str, list[dict[str, Any]]],
     human_pool_per_split: dict[str, np.ndarray],
     out_path: Path,
+    saliency_label: str = "saliency × IOR",
 ) -> Path:
     """One subplot per split: generated vs. video-pool human amplitudes.
 
@@ -252,7 +322,7 @@ def save_amplitude_histogram(
 
         ks_stat, ks_p = ks_2samp(gen_amps, hum_amps)
         ax.set_title(
-            f"{split_name} — jepa_reuse (Itti-Koch + IOR)\n"
+            f"{split_name} — jepa_reuse ({saliency_label} + IOR)\n"
             f"KS={ks_stat:.3f}  p={ks_p:.3g}"
         )
         ax.set_xlabel("saccade amplitude (px @ image_size)")
@@ -389,9 +459,14 @@ def main() -> None:
         "predictor's representation-space output. See script docstring."
     )
 
-    # The cropper uses IttiKochSaliency by default in train_jepa_reuse.py.
-    saliency = IttiKochSaliency()
     image_size = hparams["image_size"]
+    saliency = build_saliency(
+        args.saliency,
+        image_size=image_size,
+        resnet_checkpoint=args.resnet_checkpoint,
+        device="cpu",
+    )
+    print(f"Saliency source: {args.saliency}")
 
     all_rows_per_split: dict[str, list[dict[str, Any]]] = {}
     human_pool_per_split: dict[str, np.ndarray] = {}
@@ -473,7 +548,10 @@ def main() -> None:
     print(f"\nCSV: {csv_path}")
 
     fig_path = out_dir / "amplitude_histogram.png"
-    save_amplitude_histogram(all_rows_per_split, human_pool_per_split, fig_path)
+    save_amplitude_histogram(
+        all_rows_per_split, human_pool_per_split, fig_path,
+        saliency_label=args.saliency,
+    )
     print(f"Histogram: {fig_path}")
 
     print_summary_table(all_rows_per_split, human_pool_per_split)
