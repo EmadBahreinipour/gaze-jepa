@@ -1,10 +1,8 @@
-"""Saliency × IOR-driven sequential cropper. Drop-in for ``SaccadeCropper``.
+"""Saliency × IOR-driven sequential cropper — drop-in for ``SaccadeCropper``.
 
-Where ``SaccadeCropper`` produces one random-affine pair per image, this
-yields ``T-1`` consecutive ``(view_t, view_{t+1}, displacement)`` triples
-sampled from saliency × IOR. The displacement is NeRF-encoded with zero
-rotation, so ``affine_embed_dim`` matches the upstream cropper and
-``SaccadeJepa.affine_embedder`` accepts our embeddings unchanged.
+Yields ``T-1`` ``(view_t, view_{t+1}, displacement)`` triples per image.
+Displacement is NeRF-encoded with zero rotation so the upstream ``affine_embedder``
+accepts it unchanged.
 """
 
 from __future__ import annotations
@@ -68,13 +66,10 @@ class _NeRFEncoder:
 
 
 class GazeCropper(torch.nn.Module):
-    """Saliency × IOR-driven sequential cropper, drop-in for ``SaccadeCropper``.
+    """Saliency × IOR sequential cropper, drop-in for ``SaccadeCropper``.
 
-    ``target_h``/``target_w`` must match SaccadeJepa's ``model_input_size``,
-    and ``translation_L``/``rotation_L`` must match the upstream cropper's
-    NeRF dims — otherwise the prebuilt ``affine_embedder`` rejects the
-    embeddings. Defaults match SaccadeJepa defaults (128×128 crops, 36-dim
-    affine embedding).
+    ``target_h/w`` must match SaccadeJepa's ``model_input_size``; ``translation_L`` and
+    ``rotation_L`` must match the upstream NeRF dims (defaults: 128×128, 36-dim embed).
     """
 
     def __init__(
@@ -122,9 +117,7 @@ class GazeCropper(torch.nn.Module):
     def forward(
         self, x: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Returns ``(view_1, view_2, affines)``: ``B*(T-1)`` transitions per
-        batch, with crops at ``fix_t``/``fix_{t+1}`` and NeRF-encoded
-        normalised displacements. All on ``x``'s device."""
+        """``(view_1, view_2, affines)`` — ``B*(T-1)`` transitions, NeRF-encoded displacements, on ``x``'s device."""
         if x.dim() != 4 or x.shape[1] != 3:
             raise ValueError(f"Expected (B, 3, H, W), got {tuple(x.shape)}")
         B, _, H, W = x.shape
@@ -135,8 +128,7 @@ class GazeCropper(torch.nn.Module):
             )
 
         with torch.no_grad():
-            # Static-scene assumption — one saliency call per image, reused
-            # across the T-fixation walk. CPU tensors for sampling.
+            # static scene: one saliency call per image, reused across the walk
             saliency = self.saliency_source(x.float()).cpu()
             x_cpu = x.detach().cpu()
 
@@ -158,8 +150,7 @@ class GazeCropper(torch.nn.Module):
                     fix_t, fix_tp1 = fixations[t], fixations[t + 1]
                     views_1.append(_crop_at(x_cpu[b], fix_t, self.target_h, self.target_w))
                     views_2.append(_crop_at(x_cpu[b], fix_tp1, self.target_h, self.target_w))
-                    # Match SaccadeCropper.max_translation_frac: translations
-                    # are expressed in affine_grid's [-1, 1] coords.
+                    # affine_grid's [-1, 1] coords, matching SaccadeCropper.max_translation_frac
                     dx_norm = (fix_tp1[0] - fix_t[0]) / (self.input_w / 2.0)
                     dy_norm = (fix_tp1[1] - fix_t[1]) / (self.input_h / 2.0)
                     displacements.append(torch.stack([dx_norm, dy_norm]))

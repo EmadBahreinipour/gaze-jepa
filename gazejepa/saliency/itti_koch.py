@@ -1,16 +1,14 @@
 """Spectral-residual saliency (Hou & Zhang 2007) via OpenCV's contrib module.
 
-This is the "classical" saliency source Arash used in his four-source
-comparison; the class is named ``IttiKochSaliency`` for continuity with his
-report and his ``saliency_comparison.csv`` row labels. The underlying
+This is the "classical" saliency source I used in my four-source
+comparison; the class is named ``IttiKochSaliency`` for continuity with my
+report and my ``saliency_comparison.csv`` row labels. The underlying
 algorithm is the spectral residual approach (Hou & Zhang 2007), accessed
 through ``cv2.saliency.StaticSaliencySpectralResidual``.
 
 Requires the ``opencv-contrib-python`` (or ``opencv-contrib-python-headless``)
 distribution — the regular ``opencv-python`` and ``opencv-python-headless``
-packages do not ship the ``cv2.saliency`` namespace. If you have only the
-plain OpenCV installed, use :class:`gazejepa.saliency.LocalContrastSaliency`
-as a fallback (Arash's published "local_contrast" row).
+packages do not ship the ``cv2.saliency`` namespace.
 """
 
 from __future__ import annotations
@@ -38,12 +36,8 @@ class IttiKochSaliency(SaliencySource):
             self._detector = cv2.saliency.StaticSaliencySpectralResidual_create()
         except (AttributeError, ImportError) as exc:
             raise ImportError(
-                "cv2.saliency.StaticSaliencySpectralResidual is not available. "
-                "Install with: pip install opencv-contrib-python "
-                "(or opencv-contrib-python-headless on a server). "
-                "Note that opencv-contrib-python conflicts with the plain "
-                "opencv-python / opencv-python-headless package — uninstall "
-                "those first."
+                "IttiKochSaliency requires OpenCV's contrib module; "
+                "install opencv-contrib-python or opencv-contrib-python-headless"
             ) from exc
 
     def _compute(self, images: torch.Tensor) -> torch.Tensor:

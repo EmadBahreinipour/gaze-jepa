@@ -1,7 +1,7 @@
 # GazeJEPA: Saliency-Driven Gaze Simulation
 
 **Course:** Natural Interaction, Università degli Studi di Milano, 2025–2026
-**Supervisors:** Prof. Giuseppe Boccignone
+**Supervisor:** Prof. Giuseppe Boccignone
 **Authors:** Arash Khosropour, Emad Bahreinipour
 
 ## Overview

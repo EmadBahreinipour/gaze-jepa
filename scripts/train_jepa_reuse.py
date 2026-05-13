@@ -1,35 +1,4 @@
-"""
-Train the patched SaccadeJEPA (with :class:`GazeCropper` swapped in) on
-FIND frames.
-
-This is the second half of the "less obscure reuse" answer to the brief.
-The first half — the architectural substitution — is in
-:mod:`gazejepa.jepa_reuse`. This script wraps the upstream SaccadeJEPA
-training recipe (Huber prediction loss + cycle consistency + VICReg)
-around the patched model and runs it on FIND.
-
-What it does, in plain language:
-
-    For each FIND frame in the train split:
-      1. Saliency × IOR sampler picks T fixations on the frame.
-      2. The patched SaccadeJepa packs the T-1 consecutive transitions
-         into a (B*(T-1), 3, 128, 128) batch.
-      3. Predictor receives encoder(view_t) + NeRF(displacement) and
-         predicts the EMA-target-encoder's encoding of view_{t+1}.
-      4. Huber loss + cycle consistency + VICReg, optimizer step,
-         EMA update of target encoder.
-
-The model has no learning signal toward human gaze directly. It learns
-only to predict the next fixation's representation given the current
-fixation's representation and the saliency-driven displacement. Whether
-that produces more human-like scanpaths is the question the eval step
-answers.
-
-Defaults (see CLI ``--help``) are deliberately small so the script
-finishes in 1-2 hours on CPU/MPS for a quick demo. Crank
-``--n-epochs``, ``--frames-per-video``, ``--batch-size`` upward if you
-have GPU time.
-"""
+"""Train the patched SaccadeJEPA (GazeCropper swapped in) on FIND frames."""
 
 from __future__ import annotations
 
@@ -56,17 +25,13 @@ from gazejepa.jepa_reuse import make_gaze_jepa
 from gazejepa.saliency import (
     CenterBiasSaliency,
     IttiKochSaliency,
-    LocalContrastSaliency,
     RandomSaliency,
     ResNetSaliency,
 )
 
 
-# --------------------------------------------------------------------- #
-# Upstream helpers (vendored thinly so we don't depend on the upstream  #
-# repo's import order; the upstream's `train.py` mixes module-level     #
-# YAML loading and ImageNet imports we don't want).                     #
-# --------------------------------------------------------------------- #
+# Vendored from upstream utils.py / train.py to avoid pulling in the
+# upstream repo's module-level YAML and ImageNet imports.
 
 
 def ema_update(
@@ -74,7 +39,6 @@ def ema_update(
     new_model: torch.nn.Module,
     ema_decay: float = 0.996,
 ) -> torch.nn.Module:
-    """Bit-for-bit copy of upstream ``utils.ema_update``."""
     for ema_param, new_param in zip(
         updated_model.parameters(), new_model.parameters()
     ):
@@ -86,10 +50,7 @@ def ema_update(
 
 
 class WarmUpScheduler:
-    """Bit-for-bit copy of upstream ``utils.WarmUpScheduler``.
-
-    Linear warmup followed by cosine annealing to ``min_lr``.
-    """
+    """Linear warmup followed by cosine annealing to ``min_lr``."""
 
     def __init__(
         self,
@@ -123,12 +84,7 @@ def saccade_loss(
     vicreg: bool = True,
     eps: float = 1e-8,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Bit-for-bit copy of upstream ``train.saccade_loss`` for the
-    ``predict_affines=False, use_cycle_consistency=True`` path (the
-    SaccadeJepa default and what :func:`make_gaze_jepa` constructs).
-
-    Returns the scalar loss and the predictor's output (for logging).
-    """
+    """Upstream ``saccade_loss`` for the ``predict_affines=False, use_cycle_consistency=True`` path."""
     target, context, target_pred, cycle_loss = model(x)
 
     loss = F.huber_loss(target_pred, target)
@@ -136,16 +92,12 @@ def saccade_loss(
 
     if vicreg:
         context_mean = context.mean(dim=0, keepdim=True)
-        # variance term
         variance_context = config["vicreg_gamma"] - (
             context.var(dim=0) + eps
         ).sqrt()
         variance = F.relu(variance_context).mean()
-        # covariance term
-        # (d, b) @ (b, d) = (d, d)
         cov_context = (context - context_mean).T @ (context - context_mean)
         cov_context = cov_context / context.shape[0]
-        # second vicreg term: off-diagonal squared, normalized
         covariance = cov_context.triu().pow(2).sum() / cov_context.shape[0]
         loss = loss + (
             config["variance_weight"] * variance
@@ -156,27 +108,10 @@ def saccade_loss(
     return loss, target_pred
 
 
-# --------------------------------------------------------------------- #
-# FIND frame dataset                                                    #
-# --------------------------------------------------------------------- #
-
-
 class FindFramesDataset(Dataset):
-    """Sample a fixed grid of (video, frame) pairs from a FIND split.
+    """Evenly-spaced (video, frame) pairs from a FIND split as ``(3, image_size, image_size)`` float32 tensors in [0, 1].
 
-    Each item is a single ``(3, image_size, image_size)`` ``float32``
-    tensor in ``[0, 1]``. The model's forward pass internally produces
-    ``T-1`` transitions per item.
-
-    Args:
-        data_root: FIND data root.
-        video_ids: Iterable of video IDs to draw from (typically a split).
-        image_size: Side length to resize frames to. Must equal the
-            ``full_input_size`` ``make_gaze_jepa`` was constructed with.
-        frames_per_video: Number of frames per video to include. Frames
-            are picked evenly spaced across each video's duration; if the
-            video has fewer frames than requested, all are used.
-        seed: RNG seed for the (rare) sampling decisions made here.
+    ``image_size`` must match the ``full_input_size`` passed to ``make_gaze_jepa``.
     """
 
     def __init__(
@@ -200,8 +135,6 @@ class FindFramesDataset(Dataset):
                 continue
             if n_frames <= 0:
                 continue
-            # Evenly spaced indices, jittered slightly for diversity
-            # across epochs (rng is fixed so this is reproducible).
             n = min(int(frames_per_video), n_frames)
             base = np.linspace(0, n_frames - 1, n).astype(int)
             jitter = rng.integers(-2, 3, size=n)
@@ -225,11 +158,6 @@ class FindFramesDataset(Dataset):
         return t
 
 
-# --------------------------------------------------------------------- #
-# Training driver                                                       #
-# --------------------------------------------------------------------- #
-
-
 def build_saliency_source(args: argparse.Namespace):
     name = args.saliency
     if name == "resnet":
@@ -242,8 +170,6 @@ def build_saliency_source(args: argparse.Namespace):
         return ResNetSaliency.load(str(ckpt))
     if name == "itti_koch":
         return IttiKochSaliency()
-    if name == "local_contrast":
-        return LocalContrastSaliency()
     if name == "center_bias":
         return CenterBiasSaliency(size=(args.image_size, args.image_size))
     if name == "random":
@@ -265,20 +191,17 @@ def train(args: argparse.Namespace) -> dict:
     device = pick_device(args.device)
     print(f"Device: {device}")
 
-    # Data root resolution (env var → CLI arg → default).
     if args.data_root:
         data_root = resolve_data_root(args.data_root)
     else:
         data_root = resolve_data_root()
     print(f"FIND data root: {data_root}")
 
-    # Splits.
     split = get_split(str(data_root), seed=args.seed)
     train_videos = split["train"][: args.n_train_videos] if args.n_train_videos else split["train"]
     val_videos = split["val"][: args.n_val_videos] if args.n_val_videos else split["val"]
     print(f"Train videos: {len(train_videos)} | Val videos: {len(val_videos)}")
 
-    # Datasets and loaders.
     train_ds = FindFramesDataset(
         data_root=str(data_root),
         video_ids=train_videos,
@@ -305,7 +228,6 @@ def train(args: argparse.Namespace) -> dict:
         val_ds, batch_size=args.batch_size, shuffle=False, num_workers=0,
     )
 
-    # Model.
     saliency = build_saliency_source(args)
     print(f"Saliency source: {type(saliency).__name__}")
     model = make_gaze_jepa(
@@ -322,7 +244,7 @@ def train(args: argparse.Namespace) -> dict:
         f"{sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable params"
     )
 
-    # Optimizer + scheduler. Defaults from upstream config/training.yml.
+    # Defaults from upstream config/training.yml.
     optimizer = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad],
         lr=args.lr, weight_decay=args.weight_decay,
@@ -343,13 +265,11 @@ def train(args: argparse.Namespace) -> dict:
         "accumulation_steps": args.accumulation_steps,
     }
 
-    # Output dirs.
     ckpt_dir = Path(args.output_dir) / "checkpoints"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     metrics_dir = Path(args.output_dir) / "metrics"
     metrics_dir.mkdir(parents=True, exist_ok=True)
 
-    # Training loop.
     history: dict[str, list] = {
         "train_loss": [], "train_pred_mse": [],
         "val_pred_mse": [], "lr": [],
@@ -375,13 +295,11 @@ def train(args: argparse.Namespace) -> dict:
             optimizer.step()
             scheduler.step()
 
-            # EMA update of target encoder.
             model.target_encoder = ema_update(
                 model.target_encoder, model.context_encoder,
                 ema_decay=args.ema_decay,
             )
 
-            # Bookkeeping.
             with torch.no_grad():
                 # Re-extract raw target for MSE logging (saccade_loss uses Huber).
                 target, _, target_pred_log, _ = model(x)
@@ -404,7 +322,6 @@ def train(args: argparse.Namespace) -> dict:
                     f"elapsed={elapsed:.0f}s"
                 )
 
-        # Validation pass: prediction MSE only, no grad.
         model.eval()
         val_mses: list[float] = []
         with torch.no_grad():
@@ -424,7 +341,6 @@ def train(args: argparse.Namespace) -> dict:
             f"val_pred_mse={val_mse:.4f} =="
         )
 
-        # Checkpoint.
         ckpt_path = ckpt_dir / f"epoch_{epoch + 1:03d}.pt"
         torch.save(
             {
@@ -438,7 +354,6 @@ def train(args: argparse.Namespace) -> dict:
         )
         print(f"  saved {ckpt_path}")
 
-    # Final artefacts.
     final_path = ckpt_dir / "final.pt"
     torch.save({"model_state_dict": model.state_dict(), "args": vars(args)}, final_path)
     print(f"Final checkpoint: {final_path}")
@@ -447,7 +362,6 @@ def train(args: argparse.Namespace) -> dict:
     history_path.write_text(json.dumps(history, indent=2))
     print(f"Loss history: {history_path}")
 
-    # Loss curve plot (best-effort; matplotlib is already a project dep).
     try:
         import matplotlib.pyplot as plt
         fig, axes = plt.subplots(1, 2, figsize=(12, 4))
@@ -480,7 +394,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "--frames-per-video, --batch-size for a real run with GPU."
         ),
     )
-    # Data / split.
     p.add_argument("--data-root", default=None,
                    help="FIND data root (else $FIND_DATA_ROOT or repo default).")
     p.add_argument("--n-train-videos", type=int, default=0,
@@ -494,16 +407,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--crop-size", type=int, default=128,
                    help="Per-fixation crop size (encoder input).")
 
-    # Cropper / loop.
     p.add_argument("--n-fixations", type=int, default=5)
     p.add_argument("--ior-sigma", type=float, default=20.0)
     p.add_argument("--ior-decay", type=float, default=0.7)
 
-    # Saliency source (Arash's package).
     p.add_argument(
         "--saliency",
         default="resnet",
-        choices=["resnet", "itti_koch", "local_contrast", "center_bias", "random"],
+        choices=["resnet", "itti_koch", "center_bias", "random"],
         help=(
             "Saliency source for GazeCropper. Default 'resnet' uses Arash's "
             "trained ResNetSaliency checkpoint (best AUC on FIND); the "
@@ -516,7 +427,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Path to ResNetSaliency checkpoint when --saliency resnet.",
     )
 
-    # Training schedule.
     p.add_argument("--n-epochs", type=int, default=3,
                    help="Default 3 keeps the demo short; raise for a real run.")
     p.add_argument("--batch-size", type=int, default=2)
@@ -539,7 +449,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-vicreg", dest="use_vicreg", action="store_false")
     p.set_defaults(use_vicreg=True)
 
-    # Plumbing.
     p.add_argument("--device", default="auto",
                    help="auto | cpu | cuda | mps")
     p.add_argument("--seed", type=int, default=42)

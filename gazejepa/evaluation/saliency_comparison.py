@@ -1,7 +1,7 @@
 """Four-source saliency comparison on a FIND split.
 
 Headline driver for Arash's saliency-prediction track. Evaluates random,
-center-bias, classical (Itti-Koch or local-contrast), and a learned source on
+center-bias, classical, and a learned source on
 the same frames using :mod:`gazejepa.evaluation.saliency_metrics`.
 """
 
@@ -103,10 +103,6 @@ def run_full_comparison(
     device: torch.device | str = "cpu",
 ):  # -> pd.DataFrame (lazy-imported)
     """Evaluate all comparison sources, save a CSV, return a DataFrame.
-
-    If ``sources`` is omitted, uses the four canonical sources:
-    ``RandomSaliency``, ``CenterBiasSaliency``, ``LocalContrastSaliency``,
-    and a freshly-loaded ``ResNetSaliency`` from ``resnet_checkpoint``.
     """
     if sources is None:
         from gazejepa.saliency.center_bias import CenterBiasSaliency

@@ -1,8 +1,4 @@
-"""Pick one ``(x, y)`` pixel from a saliency × IOR map.
-
-Two modes: ``"stochastic"`` draws from ``Categorical(saliency * ior + ε)``;
-``"argmax"`` picks the top-scoring location deterministically.
-"""
+"""Pick one ``(x, y)`` pixel from a saliency × IOR map."""
 
 from __future__ import annotations
 
@@ -10,10 +6,9 @@ import torch
 
 
 class FixationSampler:
-    """Sample one fixation location from ``saliency × ior_mask``.
+    """One fixation from ``saliency × ior_mask`` — ``"stochastic"`` or ``"argmax"``.
 
-    ``epsilon`` is a numerical floor added to scores before normalisation
-    so a fully-suppressed map still yields a valid sample.
+    ``epsilon`` floors scores so a fully-suppressed map still yields a sample.
     """
 
     def __init__(self, mode: str = "stochastic", epsilon: float = 1e-8):

@@ -1,11 +1,4 @@
-"""Stateful inhibition-of-return mask.
-
-Each ``update(fixation)`` call decays existing suppression toward 1
-(``mask = 1 - decay * (1 - mask)``) and subtracts a Gaussian well of
-width ``sigma`` at the new fixation, clamped to ``[0, inf)``.
-
-Fixations are ``(x, y)`` pixels; the mask is indexed ``[y, x]``.
-"""
+"""Stateful inhibition-of-return mask. Fixations are ``(x, y)``; mask indexed ``[y, x]``."""
 
 from __future__ import annotations
 
@@ -13,11 +6,7 @@ import torch
 
 
 class IORMask:
-    """Stateful Gaussian inhibition-of-return mask at image resolution.
-
-    ``sigma`` is the well width in pixels; ``decay`` is the per-step
-    factor toward 1 (``1.0`` = permanent, ``0.0`` = instant forget).
-    """
+    """Stateful Gaussian IOR at image resolution. ``decay``: 1.0 = permanent, 0.0 = forget."""
 
     def __init__(
         self,

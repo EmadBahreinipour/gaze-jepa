@@ -19,12 +19,7 @@ def make_gaze_jepa(
     sampling_mode: str = "stochastic",
     saccade_jepa_kwargs: dict | None = None,
 ):
-    """Instantiate ``SaccadeJepa`` and swap its cropper for :class:`GazeCropper`.
-
-    ``saliency_source`` must conform to :class:`gazejepa.saliency.SaliencySource`.
-    ``saccade_jepa_kwargs`` forwards extras (e.g. ``in_channels``,
-    ``predictor_depth``) through to ``SaccadeJepa``.
-    """
+    """Instantiate :class:`SaccadeJepa` with :class:`GazeCropper` swapped in."""
     base_kwargs = dict(
         full_input_size=full_input_size,
         model_input_size=model_input_size,
@@ -34,7 +29,7 @@ def make_gaze_jepa(
 
     sj = SaccadeJepa(**base_kwargs)
 
-    # Mirror the upstream NeRF dims so affine_embedder accepts our embeddings.
+    # mirror upstream NeRF dims so affine_embedder accepts our embeddings
     upstream_cropper = sj.saccade_cropper
     gaze_cropper = GazeCropper(
         saliency_source=saliency_source,

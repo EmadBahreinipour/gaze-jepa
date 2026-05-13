@@ -61,7 +61,6 @@ from gazejepa.evaluation.scanpath_metrics import multimatch_backend  # noqa: E40
 from gazejepa.saliency import (  # noqa: E402
     CenterBiasParametric,
     IttiKochSaliency,
-    LocalContrastSaliency,
     RandomSaliency,
     ResNetSaliency,
     SaliencySource,
@@ -74,7 +73,7 @@ from gazejepa.saliency import (  # noqa: E402
 
 
 _SALIENCY_CHOICES = (
-    "resnet", "itti_koch", "local_contrast", "center_bias", "random",
+    "resnet", "itti_koch", "center_bias", "random",
 )
 
 
@@ -101,8 +100,6 @@ def build_saliency(
         return ResNetSaliency.load(str(ckpt), device=device)
     if name == "itti_koch":
         return IttiKochSaliency()
-    if name == "local_contrast":
-        return LocalContrastSaliency()
     if name == "center_bias":
         return CenterBiasParametric(size=image_size)
     if name == "random":
@@ -482,9 +479,8 @@ def main() -> None:
         print(f"Split: {split_name}  ({len(video_ids)} videos: {video_ids})")
         print("=" * 64)
 
-        # Reference human saccade-amplitude pool (cross-observer, full
-        # videos, NaN-tolerant, ≥5px). This is the right reference for
-        # the KS test — see EMAD_PLAN §0.4 / §3.2.
+        # Reference human saccade-amplitude pool for the KS test:
+        # cross-observer, full videos, NaN-tolerant, ≥5px.
         hum_pool = collect_video_saccade_amplitudes(
             data_root=str(data_root),
             video_ids=video_ids,

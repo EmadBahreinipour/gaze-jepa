@@ -11,12 +11,7 @@ from gazejepa.gaze_loop.ior import IORMask
 
 
 class GazeLoop:
-    """Sequential scanpath generator.
-
-    ``saliency_source`` is any callable taking ``(B, 3, H, W)`` and
-    returning a non-negative, sum-normalised ``(B, H, W)`` map; it is
-    called once per image with ``B=1``.
-    """
+    """Sequential scanpath generator. ``saliency_source`` is any ``(B, 3, H, W) → (B, H, W)`` callable (sum-normalised)."""
 
     def __init__(
         self,
@@ -36,11 +31,7 @@ class GazeLoop:
         self.sampler = FixationSampler(mode=sampling_mode)
 
     def __call__(self, image: torch.Tensor) -> dict[str, torch.Tensor]:
-        """Run the loop on one ``(3, H, W)`` image.
-
-        Returns ``scanpath`` ``(T, 2)``, ``saliency_map`` ``(H, W)``, and
-        ``ior_history`` ``(T, H, W)`` (mask *before* each fixation's update).
-        """
+        """Run on one ``(3, H, W)`` image → ``scanpath`` ``(T, 2)``, ``saliency_map``, ``ior_history`` (mask *before* each update)."""
         if image.dim() != 3:
             raise ValueError(f"Expected (3, H, W) image, got {tuple(image.shape)}")
 

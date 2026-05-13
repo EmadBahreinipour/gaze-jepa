@@ -1,5 +1,4 @@
-"""Run the explicit gaze loop on a (videos × frames × observers) grid and
-compare each generated scanpath against the matched human scanpaths."""
+"""Gaze loop vs human FIND scanpaths."""
 
 from __future__ import annotations
 
@@ -38,36 +37,11 @@ def evaluate_gaze_loop(
     sampling_mode: str = "stochastic",
     seed: int = 42,
 ) -> list[dict[str, Any]]:
-    """Run the gaze loop on a (videos × frames × observers) grid.
+    """One row per (video, frame, observer) with MultiMatch + Fréchet scores.
 
-    ``saliency_source`` must satisfy the ``SaliencySource`` contract.
-    ``saliency_name`` is copied into every result row. A frame is skipped
-    if ``start_frame + n_fixations`` runs past the end. The seed is reset
-    on every call so script and notebook produce byte-identical numbers.
-
-    Returns one dict per ``(video, frame, observer)`` triple::
-
-        {
-          "saliency_source":      str,
-          "video_id":             str,
-          "start_frame":          int,
-          "observer_idx":         int,
-          "n_observers_used":     int,
-          "multimatch_position":  float,  # all in [0, 1], higher = closer
-          "multimatch_shape":     float,
-          "multimatch_direction": float,
-          "multimatch_length":    float,
-          "frechet":              float,  # raw pixel distance
-          "frechet_normalized":   float,  # divided by image diagonal
-          "generated_scanpath":   np.ndarray,  # (T, 2) at image_size
-          "human_scanpath":       np.ndarray,  # (T, 2) at image_size
-        }
-
-    Rows sharing ``(video_id, start_frame)`` share an identical
-    ``generated_scanpath`` — observers are compared *to* it, not run alongside it.
+    Rows sharing (video_id, start_frame) reuse the same generated_scanpath.
+    Seed is reset each call for reproducibility across script/notebook runs.
     """
-    # Reset RNGs every call so any prior RNG-consuming work (e.g. a val
-    # pass before test) does not perturb the headline numbers.
     torch.manual_seed(seed)
     np.random.seed(seed)
 
@@ -90,7 +64,6 @@ def evaluate_gaze_loop(
             frame_np = load_frame(data_root, video_id, start_frame, size=image_size)
             image_t = torch.from_numpy(frame_np).permute(2, 0, 1).float() / 255.0
 
-            # One loop call per (video, frame); compared to every sampled observer.
             loop = GazeLoop(
                 saliency_source=saliency_source,
                 n_fixations=n_fixations,
@@ -143,11 +116,7 @@ def evaluate_gaze_loop(
 
 
 def collect_generated_amplitudes(rows: Sequence[dict[str, Any]]) -> np.ndarray:
-    """Saccade amplitudes deduplicated to one set per (video, frame).
-
-    Rows sharing a generated scanpath would otherwise double-count in the
-    KS test against human amplitudes.
-    """
+    """Generated saccade amplitudes, deduped per (video, frame) for the KS test."""
     seen: set[tuple[str, int]] = set()
     out: list[np.ndarray] = []
     for r in rows:
@@ -163,13 +132,7 @@ def collect_generated_amplitudes(rows: Sequence[dict[str, Any]]) -> np.ndarray:
 
 
 def collect_paired_human_amplitudes(rows: Sequence[dict[str, Any]]) -> np.ndarray:
-    """Amplitudes from the per-pair scanpaths (``n_fixations`` consecutive frames).
-
-    The NaN filter only retains observers who held a stable fixation across the
-    full window, so these amplitudes are dominated by within-fixation drift, not
-    real saccades. Useful for context but **not** the right comparison for the
-    saccade-amplitude KS test — use :func:`collect_video_saccade_amplitudes`.
-    """
+    """Per-pair human amplitudes — dominated by drift; use :func:`collect_video_saccade_amplitudes` for the KS test."""
     out: list[np.ndarray] = []
     for r in rows:
         sp = np.asarray(r["human_scanpath"])
@@ -179,7 +142,6 @@ def collect_paired_human_amplitudes(rows: Sequence[dict[str, Any]]) -> np.ndarra
     return np.concatenate(out) if out else np.array([], dtype=np.float64)
 
 
-# Back-compat alias — earlier code called it ``collect_human_amplitudes``.
 collect_human_amplitudes = collect_paired_human_amplitudes
 
 
@@ -191,25 +153,10 @@ def collect_video_saccade_amplitudes(
     max_frame_gap: int = 5,
     min_amplitude_px: float = 5.0,
 ) -> np.ndarray:
-    """Aggregate human saccade amplitudes across full videos.
+    """Cross-observer human saccade amplitudes, rescaled to ``image_size``.
 
-    For each observer, walks the per-frame fixations and pairs valid (non-NaN)
-    fixations separated by at most ``max_frame_gap`` frames. Coords are rescaled
-    from native FIND (1280×720) to ``image_size`` so results are directly
-    comparable to the loop's pixel coords. Pairs below ``min_amplitude_px`` are
-    dropped to filter tracker drift. ``max_frame_gap=5`` is ≈ 167 ms at 30 fps;
-    larger gaps risk crossing multiple saccades.
-
-    This is the right human pool for the KS test against the loop's amplitudes —
-    the per-pair scanpaths from the curated grid are too short (5 frames) to
-    contain real saccades at 30 fps and cannot drive that comparison.
+    max_frame_gap=5 ≈ 167 ms at 30 fps; larger risks crossing saccades.
     """
-    # Local imports to keep top-of-file lean.
-    from gazejepa.data.find_dataset import (  # noqa: WPS433 (intra-module re-import)
-        FIND_NATIVE_H,
-        FIND_NATIVE_W,
-        load_fixations,
-    )
     scale_x = image_size / FIND_NATIVE_W
     scale_y = image_size / FIND_NATIVE_H
 

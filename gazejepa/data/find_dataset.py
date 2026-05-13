@@ -1,28 +1,6 @@
-"""
-FIND dataset loader.
+"""FIND loader. Frames from raw_videos/*.mp4 (not the dynamic/ motion-energy PNGs).
 
-Reads frames from ``Our_database/raw_videos/{vid}.mp4`` via OpenCV (NOT the
-preprocessed ``dynamic/`` motion-energy PNGs — those are not natural RGB
-and are explicitly excluded by EMAD_PLAN §1 / line 49).
-
-Fixations come from ``Our_database/fix_data/{vid}.mat`` as a
-``(2, n_observers, n_frames)`` array, with ``NaN`` where an observer did not
-fixate on a frame. The plan's expected layout is `(2, 70, n_frames)` —
-``n_observers`` is treated as a runtime value rather than a constant in
-case the dataset version varies.
-
-Public API (per MIGRATION_AUDIT §2):
-    resolve_data_root(explicit=None) -> Path
-    get_video_ids(data_root)         -> list[str]
-    get_split(data_root, seed=42)    -> dict[str, list[str]]
-    load_frame(data_root, video_id, frame_idx, size=None) -> np.ndarray
-    load_fixations(data_root, video_id) -> np.ndarray
-    get_frame_fixations(fix_array, frame_idx) -> np.ndarray
-    get_frame_count(data_root, video_id) -> int
-    make_heatmap(fixations_xy, img_h, img_w, sigma=30) -> np.ndarray
-    rescale_fixations(fix_xy, src_size, dst_size) -> np.ndarray
-    get_human_scanpath(data_root, video_id, observer_idx, start_frame, length)
-        -> np.ndarray | None
+Fixations: ``(2, n_observers, n_frames)`` float64 from fix_data/*.mat, NaN-padded.
 """
 
 from __future__ import annotations
@@ -35,15 +13,11 @@ import numpy as np
 import scipy.io
 
 
-# ---- Constants -------------------------------------------------------------
-
 EXCLUDED_VIDEOS: frozenset[str] = frozenset({"019", "022", "057"})
 """Videos excluded by the original FIND MATLAB processing script."""
 
 MIN_OBSERVERS_PER_FRAME: int = 5
-"""Minimum number of observers a frame must have to be eligible for evaluation
-(per EMAD_PLAN §1, line 97). Not enforced inside this module — the eval
-pipeline filters with this constant."""
+"""Eval gates frames below this — not enforced here."""
 
 FIND_NATIVE_W: int = 1280
 FIND_NATIVE_H: int = 720
@@ -52,8 +26,6 @@ FIND_NATIVE_H: int = 720
 DEFAULT_HEATMAP_SIGMA: int = 30
 """Default Gaussian sigma (pixels at native resolution) for fixation heatmaps."""
 
-
-# ---- Path resolution -------------------------------------------------------
 
 _REPO_DATA_ROOT = Path(__file__).resolve().parent.parent.parent / "data" / "find_dataset"
 
@@ -79,14 +51,8 @@ def _video_path(root: str | os.PathLike[str], vid: str) -> Path:
     return Path(root) / "Our_database" / "raw_videos" / f"{vid}.mp4"
 
 
-# ---- Video IDs and splits --------------------------------------------------
-
 def get_video_ids(data_root: str | os.PathLike[str]) -> list[str]:
-    """Sorted list of available video IDs (e.g. ``['001', '002', ...]``).
-
-    A video is "available" iff its ``fix_data/{vid}.mat`` exists and it is
-    not in :data:`EXCLUDED_VIDEOS`.
-    """
+    """Sorted video IDs — fix_data/*.mat present and not in EXCLUDED_VIDEOS."""
     fix_dir = _fix_dir(data_root)
     if not fix_dir.is_dir():
         raise FileNotFoundError(f"Missing fix_data directory: {fix_dir}")
@@ -97,11 +63,7 @@ def get_video_ids(data_root: str | os.PathLike[str]) -> list[str]:
 def get_split(
     data_root: str | os.PathLike[str], seed: int = 42,
 ) -> dict[str, list[str]]:
-    """Reproducible 50 / 6 / 6 video-level split.
-
-    Determinism is part of the API: both authors must call this with the
-    default seed to share the split (EMAD_PLAN §1, line 97).
-    """
+    """Reproducible 50/6/6 split. Both authors must use the default seed to share it."""
     all_vids = get_video_ids(data_root)
     if len(all_vids) != 62:
         raise RuntimeError(
@@ -118,17 +80,10 @@ def get_split(
     }
 
 
-# ---- Fixations -------------------------------------------------------------
-
 def load_fixations(
     data_root: str | os.PathLike[str], video_id: str,
 ) -> np.ndarray:
-    """Load the ``(2, n_observers, n_frames)`` fixation array for one video.
-
-    Index 0 of the first axis is x (pixel), index 1 is y (pixel), with
-    ``NaN`` where the observer did not fixate. Returned as ``float64`` (the
-    .mat file's native dtype).
-    """
+    """``(2, n_observers, n_frames)`` float64: row 0 = x, row 1 = y, NaN if unfixated."""
     path = _fix_dir(data_root) / f"{video_id}.mat"
     if not path.is_file():
         raise FileNotFoundError(f"Fixation file not found: {path}")
@@ -142,11 +97,7 @@ def load_fixations(
 
 
 def get_frame_fixations(fix_array: np.ndarray, frame_idx: int) -> np.ndarray:
-    """Return the ``(n_valid, 2)`` array of (x, y) fixation coords on a frame.
-
-    Drops observers with ``NaN`` x-coordinate on this frame. Coords are in
-    native FIND pixels (1280 × 720).
-    """
+    """``(n_valid, 2)`` (x, y) for one frame in native FIND pixels (NaN observers dropped)."""
     if fix_array.ndim != 3 or fix_array.shape[0] != 2:
         raise ValueError(
             f"Expected (2, n_observers, n_frames) fix_array, got {fix_array.shape}"
@@ -160,16 +111,10 @@ def get_frame_fixations(fix_array: np.ndarray, frame_idx: int) -> np.ndarray:
     return np.stack([frame[0, valid], frame[1, valid]], axis=1)
 
 
-# ---- Frames ----------------------------------------------------------------
-
 def get_frame_count(
     data_root: str | os.PathLike[str], video_id: str,
 ) -> int:
-    """Frame count usable for evaluation: ``min(mp4_frame_count, fix_n_frames)``.
-
-    The two can differ slightly because of how the FIND MATLAB pipeline
-    handles trailing frames; using the min is the conservative choice.
-    """
+    """``min(mp4_frame_count, fix_n_frames)`` — they sometimes differ at the tail."""
     path = _video_path(data_root, video_id)
     if not path.is_file():
         raise FileNotFoundError(f"Video not found: {path}")
@@ -190,18 +135,9 @@ def load_frame(
     frame_idx: int,
     size: int | None = None,
 ) -> np.ndarray:
-    """Decode a single RGB frame from ``Our_database/raw_videos/{vid}.mp4``.
+    """One RGB frame from raw_videos/{vid}.mp4 as ``(H, W, 3)`` uint8 (native 720×1280).
 
-    Args:
-        data_root: FIND data root.
-        video_id: e.g. ``"001"``.
-        frame_idx: zero-based frame index.
-        size: if not ``None``, resize the frame to ``(size, size)`` (square)
-            using ``cv2.INTER_AREA`` (downsampling-friendly).
-
-    Returns:
-        ``(H, W, 3)`` ``uint8`` array. RGB channel order. Native shape is
-        ``(720, 1280, 3)``.
+    If ``size`` is given, square-resampled with INTER_AREA.
     """
     path = _video_path(data_root, video_id)
     if not path.is_file():
@@ -230,26 +166,13 @@ def load_frame(
     return rgb
 
 
-# ---- Heatmap and rescaling -------------------------------------------------
-
 def make_heatmap(
     fixations_xy: np.ndarray,
     img_h: int,
     img_w: int,
     sigma: float = DEFAULT_HEATMAP_SIGMA,
 ) -> np.ndarray:
-    """Gaussian-smoothed fixation density map normalised so ``max == 1``.
-
-    Standard FIND ground-truth saliency construction (Bylinskii et al. 2019).
-    Each fixation contributes a 2D Gaussian of width ``sigma`` (pixels at the
-    same resolution as the requested ``img_h × img_w``); the sum is rescaled
-    so the brightest pixel is 1.
-
-    Args:
-        fixations_xy: ``(N, 2)`` array of ``(x, y)`` pixel coords.
-        img_h, img_w: target heatmap dimensions.
-        sigma: Gaussian sigma in pixels.
-    """
+    """Gaussian-smoothed fixation density, max-normalised to 1 (Bylinskii et al. 2019)."""
     heatmap = np.zeros((img_h, img_w), dtype=np.float64)
     if len(fixations_xy) == 0:
         return heatmap
@@ -275,13 +198,7 @@ def rescale_fixations(
     src_size: int | tuple[int, int],
     dst_size: int | tuple[int, int],
 ) -> np.ndarray:
-    """Linearly rescale ``(x, y)`` fixations from ``src_size`` to ``dst_size``.
-
-    Args:
-        fix_xy: ``(N, 2)`` array.
-        src_size: ``(W, H)`` tuple, or a single ``int`` if square.
-        dst_size: ``(W, H)`` tuple, or a single ``int`` if square.
-    """
+    """Linearly rescale ``(x, y)`` from ``src_size`` to ``dst_size`` — both ``(W, H)`` or int."""
     sw, sh = (src_size, src_size) if isinstance(src_size, int) else src_size
     dw, dh = (dst_size, dst_size) if isinstance(dst_size, int) else dst_size
     arr = np.asarray(fix_xy, dtype=np.float64)
@@ -293,8 +210,6 @@ def rescale_fixations(
     return out
 
 
-# ---- Human scanpath (Option A from EMAD_PLAN §3.2) -------------------------
-
 def get_human_scanpath(
     data_root: str | os.PathLike[str],
     video_id: str,
@@ -302,21 +217,11 @@ def get_human_scanpath(
     start_frame: int,
     length: int,
 ) -> np.ndarray | None:
-    """Per-observer scanpath across consecutive frames.
+    """One observer's fixations across ``[start_frame, start_frame + length)``, native pixels.
 
-    Picks observer ``observer_idx`` and takes their fixation positions on
-    frames ``[start_frame, start_frame + length)``. Returns ``None`` if any
-    frame in that window has a NaN fixation, or if the window runs past the
-    last frame.
-
-    Caveat (EMAD_PLAN §0.4): the underlying scene is moving while the
-    observer's gaze evolves, whereas Emad's loop generates ``length``
-    fixations on a static frame. This helper produces the closest available
-    "human scanpath" reference; the report calls out the static-vs-temporal
-    mismatch explicitly.
-
-    Returns:
-        ``(length, 2)`` array in native FIND pixel coords, or ``None``.
+    Returns None on any NaN or past-end. Caveat: the scene moves while gaze
+    evolves, so this isn't directly comparable to the loop's static-frame
+    scanpath — the report flags this.
     """
     fix = load_fixations(data_root, video_id)
     if start_frame < 0 or start_frame + length > fix.shape[2]:
@@ -335,14 +240,9 @@ def get_human_scanpath(
     return np.array(coords, dtype=np.float64)
 
 
-# ---- Smoke test ------------------------------------------------------------
-
 def _smoke_test() -> None:
-    """Phase 2 stopping-condition verification (per MIGRATION_AUDIT §5).
-
-    Run as ``python -m gazejepa.data.find_dataset`` with FIND_DATA_ROOT set.
-    """
-    # Imported lazily so module import doesn't drag in matplotlib/sklearn.
+    """Run as ``python -m gazejepa.data.find_dataset`` with FIND_DATA_ROOT set."""
+    # lazy: keeps module import light
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -383,7 +283,6 @@ def _smoke_test() -> None:
         f"Expected ({FIND_NATIVE_H}, {FIND_NATIVE_W}, 3), got {frame.shape}"
     assert frame.dtype == np.uint8
 
-    # Resized variant
     frame_224 = load_frame(data_root, vid, 100, size=224)
     print(f"[frame]  100 size=224: shape={frame_224.shape} dtype={frame_224.dtype}")
     assert frame_224.shape == (224, 224, 3) and frame_224.dtype == np.uint8
@@ -399,14 +298,12 @@ def _smoke_test() -> None:
     assert h.shape == (FIND_NATIVE_H, FIND_NATIVE_W)
     assert 0 < h.max() <= 1.0 + 1e-9
 
-    # Rescale fixations to a 224×224 frame to verify coord transformation
     rescaled = rescale_fixations(fixs, (FIND_NATIVE_W, FIND_NATIVE_H), (224, 224))
     print(f"[fix]    rescaled to 224: x=[{rescaled[:, 0].min():.1f}, "
           f"{rescaled[:, 0].max():.1f}] y=[{rescaled[:, 1].min():.1f}, "
           f"{rescaled[:, 1].max():.1f}]")
     assert (rescaled >= 0).all() and (rescaled <= 224 + 1).all()
 
-    # Human-scanpath helper (Option A)
     sp = get_human_scanpath(
         data_root, vid, observer_idx=5, start_frame=100, length=5,
     )
@@ -417,11 +314,7 @@ def _smoke_test() -> None:
     print(f"[scan]   length-5 scanpath shape: "
           f"{None if sp is None else sp.shape}")
 
-    # The plan's sanity check: center-bias AUC against human fixations
-    # should land in 0.65–0.80 *typically*. Individual frames can be
-    # higher (concentrated cluster on a face) or lower (scattered over
-    # multiple faces). Compute AUC at several frame indices and use the
-    # median for the gating check; report all values for transparency.
+    # Center-bias AUC ≈ 0.65–0.80; gate on median since per-frame swings widely.
     cb = center_bias_baseline(FIND_NATIVE_H, FIND_NATIVE_W, sigma_frac=0.25)
     sample_frames = [50, 100, 150, 300, 500]
     aucs = []
@@ -436,13 +329,10 @@ def _smoke_test() -> None:
     median_auc = float(np.median(aucs))
     auc = aucs[sample_frames.index(100)] if 100 in sample_frames else median_auc
     print(f"[auc]    median across {len(aucs)} frames: {median_auc:.3f} "
-          f"(plan typical range: 0.65–0.80)")
-    # Gate on a wider band: center-bias must clearly beat random (>0.55) and
-    # not be near-perfect (<0.95) on the median frame. Tight 0.65–0.80 is a
-    # population statistic, not a per-frame guarantee.
+          f"(typical: 0.65–0.80)")
+    # Wider gate: must beat random clearly but not be near-perfect.
     in_range = 0.55 <= median_auc <= 0.95
 
-    # Save a 3-panel verification figure (image, fixations, heatmap).
     out_dir = Path(__file__).resolve().parents[2] / "outputs"
     out_dir.mkdir(parents=True, exist_ok=True)
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
