@@ -1,0 +1,621 @@
+\documentclass[12pt,a4paper]{article}
+
+% ── Packages ──────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage[hidelinks]{hyperref}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{tikz}
+\usepackage[numbers,sort&compress]{natbib}
+
+% ── Title ─────────────────────────────────────────────────
+\title{Reverse Engineering SaccadeJEPA:\\
+  From Joint-Embedding Predictive Architectures\\
+  to Gaze Dynamics Simulation}
+
+\author{Emad Bahreinipour }
+\date{May 2026}
+
+
+% ══════════════════════════════════════════════════════════
+\begin{document}
+\maketitle
+
+\tableofcontents
+\newpage
+
+% ══════════════════════════════════════════════════════════
+% SECTION 1 — General Description of JEPA
+% ══════════════════════════════════════════════════════════
+\section{General Description of JEPA}
+\label{sec:jepa}
+
+\subsection{The Basic Idea}
+\label{subsec:jepa-motivation}
+
+A Joint-Embedding Predictive Architecture (JEPA) is a self-supervised learning
+framework built around one central idea: instead of reconstructing missing data
+in pixel space, the model predicts missing information in a learned
+representation space. In plain terms, it does not try to reproduce every
+texture, colour fluctuation, or noise pattern in an image. It tries to predict
+the abstract state of what is missing.
+
+This is different from pixel-reconstruction methods such as autoencoders, which
+must model all visible detail, including information that may be irrelevant for
+understanding the scene. It is also different from contrastive methods, which
+often depend on negative examples and hand-crafted augmentations. JEPA instead
+creates a predictive task directly from the input: observe one part, represent
+another part, and train the model to predict the second representation from the
+first.
+
+\subsection{Core Principle: Prediction in Representation Space}
+\label{subsec:jepa-core}
+
+Let $\mathbf{x}$ be the observed part of an input and $\mathbf{y}$ the part to
+be predicted. A context encoder maps the observed part to a representation,
+while a target encoder maps the target part to another representation:
+
+\begin{align}
+  s_x &= f_\theta(\mathbf{x}),  \label{eq:enc-ctx} \\
+  s_y &= f_{\bar\theta}(\mathbf{y}),  \label{eq:enc-tgt}
+\end{align}
+
+The predictor then estimates the target representation from the context
+representation:
+
+\begin{equation}
+  \hat{s}_y = g_\phi(s_x), \label{eq:predictor}
+\end{equation}
+
+and training minimises the distance between the predicted and actual target
+representations:
+
+\begin{equation}
+  \mathcal{L} = d\!\left(\hat{s}_y,\; s_y\right), \label{eq:loss}
+\end{equation}
+
+where $d(\cdot,\cdot)$ is usually a squared-error or Huber-style distance. The
+important point is that the loss is not computed between images. It is computed
+between embeddings. The model therefore learns to predict the abstract state of
+the target, not its exact pixels.
+
+\subsection{The EMA Target Encoder}
+\label{subsec:jepa-collapse}
+
+A practical issue in joint-embedding methods is collapse: both encoders could
+learn to output nearly constant vectors, producing a low loss without useful
+representations. JEPA avoids this by making the two branches asymmetric. The
+context encoder is trained by gradient descent, but the target encoder is a
+slow-moving copy of it.
+
+Concretely, the target encoder parameters $\bar\theta$ are updated by an
+exponential moving average (EMA) of the context encoder parameters $\theta$:
+
+\begin{equation}
+  \bar\theta \;\leftarrow\; \tau\,\bar\theta \;+\; (1-\tau)\,\theta,
+  \label{eq:ema}
+\end{equation}
+
+with $\tau$ close to one. In plain terms, the target encoder is not trained
+directly by back-propagation. It follows the context encoder slowly. This gives
+the predictor a stable target to chase while still allowing the target
+representation to improve over training.
+
+\subsection{I-JEPA as the Image Example}
+\label{sec:ijepa}
+\label{subsec:ijepa-overview}
+
+I-JEPA is the main image-based example of this idea. It divides an image into
+patch tokens, hides large contiguous target blocks, and gives the context
+encoder only the visible patches. The target encoder computes representations
+for the hidden blocks, and the predictor learns to infer those target
+representations from the visible context.
+
+The important point for this report is not every architectural detail of
+I-JEPA, but the pattern it establishes:
+
+\begin{center}
+\texttt{visible image region}
+$\rightarrow$
+\texttt{predict representation of unseen image region}.
+\end{center}
+
+Because I-JEPA predicts representations rather than pixels, it encourages the
+encoder to learn semantic and spatially meaningful features. This makes it a
+useful conceptual bridge to gaze: a fixation also reveals only part of the
+visual scene, and the visual system must infer what lies outside the current
+high-acuity region.
+
+\subsection{Why JEPA Fits Gaze Modelling}
+\label{subsec:ijepa-gaze-link}
+\label{subsec:jepa-hierarchy}
+
+The gaze interpretation follows naturally from the JEPA formulation. If
+$\mathbf{x}$ is the current fixation crop and $\mathbf{y}$ is the next fixation
+crop, then the task becomes:
+
+\begin{center}
+\texttt{current fixation representation + movement information}
+$\rightarrow$
+\texttt{next fixation representation}.
+\end{center}
+
+This is the bridge used in the rest of the report. Original SaccadeJEPA already
+applies JEPA to spatial shifts: it predicts the representation of a shifted
+crop from another crop and an encoded movement. The adaptation in this report
+keeps that prediction machinery, but changes where the shifts come from.
+Instead of one random perturbation, the model receives saliency-driven gaze
+transitions.
+% ══════════════════════════════════════════════════════════
+% SECTION 2 — Adaptation for attentive vision / gaze
+% ══════════════════════════════════════════════════════════
+\section{Adaptation for Attentive Vision and Gaze}
+\label{sec:saccade}
+
+\subsection{What Original SaccadeJEPA Provides}
+\label{subsec:saccade-overview}
+
+The starting point is the \texttt{SaccadeJepa} model from the LumenPallidium
+JEPA repository~\cite{lumenpallidium2024jepa}. It is an unpublished JEPA-style
+variant, separate from the repository's standard \texttt{ViTJepa}
+implementation. Its pretext task is simple: given two spatially related crops
+from the same image, predict the target encoder's representation of one crop
+from the context encoder's representation of the other.
+
+In plain words, original SaccadeJEPA does this:
+
+\begin{center}
+\texttt{image -> one random crop pair -> encode -> predict target representation}.
+\end{center}
+
+The main components are already useful for gaze modelling:
+
+\begin{itemize}
+  \item \textbf{Context encoder:} a ConvNeXt-Tiny network that encodes the
+        first crop.
+  \item \textbf{Target encoder:} an EMA copy of the context encoder that
+        encodes the second crop without gradient updates.
+  \item \textbf{Affine embedder:} a NeRF-style sinusoidal embedding of the
+        spatial displacement between the two crops.
+  \item \textbf{Predictor:} a three-layer MLP that receives the context
+        representation plus the movement embedding and predicts the target
+        representation.
+\end{itemize}
+
+The original cropper is the weak part for gaze. \texttt{SaccadeCropper}
+samples one random affine transformation per image. The sampled movement is not
+conditioned on image content, does not form a sequence, and does not remember
+where the model has already looked. It is useful as a representation-learning
+pretext task, but it is not yet an explicit gaze simulator.
+
+\subsection{What Needs to Change for Gaze}
+\label{subsec:saccade-reuse}
+
+The biological interpretation of gaze requires three behaviours that original
+SaccadeJEPA does not provide:
+
+\begin{itemize}
+  \item \textbf{Content-driven target selection.} The next crop should depend
+        on the image, not on a uniform random draw.
+  \item \textbf{Sequential fixations.} The model should produce a short
+        scanpath, not only one independent crop pair.
+  \item \textbf{Inhibition of return.} Recently visited locations should be
+        temporarily suppressed so the model does not repeatedly sample the same
+        point.
+\end{itemize}
+
+The conservative design choice is to change only the component responsible for
+choosing and producing crops. The encoder, target encoder, EMA update,
+predictor, affine embedder, and loss are kept from SaccadeJEPA. This keeps the
+adaptation easy to interpret: if the patched model learns, the learning signal
+comes from the same JEPA machinery, but applied to gaze-like transitions.
+
+\subsection{The Cropper Substitution}
+\label{subsec:loop:motivation}
+\label{subsec:loop:method}
+
+The adaptation is implemented in the project's JEPA-reuse module. Its factory
+first builds a normal \texttt{SaccadeJepa} instance and then replaces one
+attribute:
+
+\begin{center}
+\texttt{sj.saccade\_cropper = GazeCropper(...)}
+\end{center}
+
+This is the central architectural change of the project. Before the swap, the
+model receives one random crop pair. After the swap, it receives a sequence of
+saliency-driven fixation transitions:
+
+\begin{center}
+\texttt{image -> saliency map -> fixation 1 -> fixation 2 -> ... -> JEPA prediction}.
+\end{center}
+
+\texttt{GazeCropper} preserves the same return signature as the upstream
+\texttt{SaccadeCropper}:
+
+\begin{equation}
+  (\mathbf{view}_1,\; \mathbf{view}_2,\; \mathbf{affines})
+  = \texttt{cropper}(\mathbf{x}).
+  \label{eq:gaze-cropper-return}
+\end{equation}
+
+Because the rest of \texttt{SaccadeJepa.forward} sees the same three tensors,
+the upstream forward pass does not need to be rewritten.
+
+\subsection{How GazeCropper Works}
+\label{subsec:saccade-generation}
+
+For each image, \texttt{GazeCropper} performs a short explicit gaze loop:
+
+\begin{enumerate}
+  \item Compute a saliency map from the image.
+  \item Initialise an inhibition-of-return mask to ones.
+  \item For $T$ steps, sample the next fixation from
+        $\mathrm{saliency} \times \mathrm{IOR}$.
+  \item After each fixation, suppress that location with a Gaussian inhibition
+        well and let older suppressions decay.
+  \item Convert the $T$ fixations into $T-1$ transitions
+        $(\mathrm{fix}_t \to \mathrm{fix}_{t+1})$.
+\end{enumerate}
+
+In the experiments below, $T=5$, so each image produces four transitions. Each
+transition contributes a $128 \times 128$ crop at the current fixation, a
+$128 \times 128$ crop at the next fixation, and the normalised displacement
+between them. The predictor is therefore trained on:
+
+\begin{center}
+\texttt{current fixation crop + movement embedding}
+$\rightarrow$
+\texttt{next fixation representation}.
+\end{center}
+
+The saliency source is pluggable: any module that maps an RGB image batch to a
+normalised saliency map can be used. This includes random saliency, centre
+bias, classical spectral-residual saliency, or Arash Khosropour's trained
+ResNet saliency model. The ResNet model is the default for the final
+experiments; it is trained separately on FIND fixation maps and then frozen
+during JEPA training.
+
+\subsection{Compatibility with SaccadeJEPA}
+\label{subsec:saccade-forward}
+
+The substitution is safe because \texttt{GazeCropper} respects the two
+contracts expected by the upstream model.
+
+\paragraph{First, the embedding dimension is unchanged.}
+The upstream affine embedder expects a 36-dimensional NeRF-style movement
+embedding. This comes from translation order $L_t=4$ and rotation order
+$L_r=10$:
+
+\begin{equation}
+  \texttt{affine\_embed\_dim} = L_t \cdot 4 + L_r \cdot 2 = 36.
+  \label{eq:nerf-encoding}
+\end{equation}
+
+\texttt{GazeCropper} reads these orders from the original cropper and produces
+the same embedding width. Rotation is set to zero, because gaze shifts translate
+the fixation window but do not rotate the world.
+
+\paragraph{Second, the encoder inputs remain symmetric.}
+Both the context encoder and the target encoder still receive $3$-channel
+$128 \times 128$ RGB crops. This matters because the target encoder is an EMA
+copy of the context encoder. An earlier integrated-controller design used a
+$6$-channel fovea-plus-periphery context branch with a $3$-channel target
+branch; that would have made the EMA path asymmetric. The final design avoids
+that issue by keeping the upstream $3$-channel crop interface.
+
+\subsection{Losses Reused from SaccadeJEPA}
+\label{subsec:saccade-losses}
+
+The training objective is also reused. The main term compares the predictor's
+output with the EMA target encoder's representation of the next fixation crop:
+
+\begin{equation}
+  \mathcal{L}_{\text{pred}}
+  = \texttt{HuberLoss}\!\bigl(\hat{s}_y,\; s_y\bigr).
+  \label{eq:saccade-pred-loss}
+\end{equation}
+
+The upstream cycle-consistency term asks the predictor to approximately undo a
+transition:
+
+\begin{equation}
+  \mathcal{L}_{\text{cycle}}
+  = \bigl\lVert \hat{s}_x - s_x \bigr\rVert_2^2.
+  \label{eq:saccade-cycle-loss}
+\end{equation}
+
+VICReg variance and covariance terms are kept as collapse-prevention
+regularisers. In compact form, the total objective is:
+
+\begin{equation}
+  \mathcal{L}
+  = \mathcal{L}_{\text{pred}}
+  + \lambda_{\text{cycle}}\,\mathcal{L}_{\text{cycle}}
+  + \lambda_{\text{var}}\,\mathcal{L}_{\text{var}}
+  + \lambda_{\text{cov}}\,\mathcal{L}_{\text{cov}}.
+  \label{eq:saccade-total-loss}
+\end{equation}
+
+Thus the adaptation is deliberately minimal. The source of the two views
+changes from a random affine perturbation to a saliency-driven gaze transition;
+the JEPA prediction machinery remains the same.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{../outputs/jepa_reuse_demo.png}
+  \caption{The patched \texttt{SaccadeJepa} on a FIND frame at
+    $200 \times 200$. \texttt{GazeCropper} consumes the frame and a
+    saliency map, runs $T=5$ saliency~$\times$~IOR fixations, and emits four
+    $(\mathbf{view}_1, \mathbf{view}_2, \mathbf{affine})$ transitions in the
+    same return format expected by upstream SaccadeJEPA. Every box after the
+    cropper is reused from the original model.}
+  \label{fig:loop:in-action}
+\end{figure}
+
+% ══════════════════════════════════════════════════════════
+% SECTION 3 — Possible simulations and results
+% ══════════════════════════════════════════════════════════
+\section{Possible Simulations and Results}
+\label{sec:loop}
+
+The feasible simulation is a self-supervised gaze-transition prediction task
+on FIND~\cite{liu2016find}. The model receives a static video frame, uses
+\texttt{GazeCropper} to generate a short saliency-driven scanpath, and trains
+SaccadeJEPA's predictor to anticipate the representation of the next fixation
+crop. This does not yet claim to reproduce human scanpaths exactly. It tests a
+more basic question: after the cropper substitution, can the original JEPA
+machinery still learn?
+
+\subsection{Simulation Setup}
+\label{subsec:loop:evaluation}
+
+Frames are decoded from FIND raw MP4 videos and resized to
+$200 \times 200$. The shared split is 50 training videos, 6 validation videos,
+and 6 test videos. For the demonstration run, each training video contributes
+four sampled frames per epoch. With batch size 4 and $T=5$ fixations per
+frame, the predictor sees 16 fixation transitions per batch.
+
+Training uses the same loss family described in
+Sec.~\ref{subsec:saccade-losses}: Huber prediction loss~\cite{huber1964robust},
+cycle consistency, and VICReg variance/covariance regularisation
+~\cite{bardes2022vicreg}. AdamW is used with learning rate
+$5 \cdot 10^{-5}$ and EMA decay $\tau=0.996$~\cite{grill2020byol}. The only
+practical adjustment is that the VICReg weights are reduced for the small CPU
+batch size: $\lambda_{\mathrm{var}}=1.0$,
+$\lambda_{\mathrm{cov}}=0.1$, and $\gamma=1.0$. The upstream defaults were
+tuned for a much larger effective batch.
+
+The run lasts five CPU epochs. Figure~\ref{fig:loop:loss-curve} shows that
+both total loss and prediction MSE decrease over training. The key curve is
+prediction MSE, because it measures how close the predictor is to the EMA
+target representation of the next fixation.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.92\linewidth]{../outputs/jepa_reuse/metrics/loss_curve.png}
+  \caption{Training loss and prediction MSE for the patched
+    \texttt{SaccadeJepa} on FIND. Five epochs, batch size~$4$,
+    four frames per training video, on CPU. The total loss combines
+    a Huber prediction term, a cycle term, and the VICReg
+    variance/covariance regulariser. The prediction MSE is read
+    directly from the predictor against the EMA target encoder.
+    Per-batch values are shown lightly; the heavy line is a running
+    mean.}
+  \label{fig:loop:loss-curve}
+\end{figure}
+
+\subsection{Quantitative Results}
+\label{subsec:loop:results}
+
+The main result is the validation prediction MSE. Before training, the patched
+model gives a validation MSE of $0.2996$. After five epochs, the matched
+validation pass gives $0.0462$. This is an $84.6\%$ reduction. The result means
+that the predictor learned to anticipate the next-fixation representation under
+the saliency-driven cropper.
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{lr}
+    \toprule
+    Phase & Prediction MSE \\
+    \midrule
+    Untrained, validation pool ($n_{\mathrm{val}}{=}24$)        & $0.2996$ \\
+    \addlinespace
+    Validation, end of epoch~$1$                                & $0.0963$ \\
+    Validation, end of epoch~$2$                                & $0.0471$ \\
+    Validation, end of epoch~$3$                                & $0.0459$ \\
+    Validation, end of epoch~$4$                                & $0.0428$ \\
+    Validation, end of epoch~$5$                                & $0.0447$ \\
+    \addlinespace
+    Trained, validation pool (matched val pass on \texttt{final.pt}) & $0.0462$ \\
+    \bottomrule
+  \end{tabular}
+  \caption{Predictor mean-squared error against the EMA target
+    encoder, before and after a five-epoch training run on FIND.
+    All numbers are averaged across the six held-out validation
+    videos sampled at four frames per video (batch size~$4$,
+    $T{=}5$ fixations per frame), using Arash's trained
+    \texttt{ResNetSaliency} as the saliency source. The last row
+    re-loads the final checkpoint and replays the validation pass
+    in matched conditions: the training-time number recorded at
+    end of epoch~$5$ ($0.0447$) and the post-hoc reproduction
+    ($0.0462$) agree to within batch-level noise.}
+  \label{tab:loop:ks}
+\end{table}
+
+\subsection{Qualitative Scanpath Simulation}
+
+Figure~\ref{fig:loop:qualitative} shows four scanpaths sampled on held-out FIND
+test frames. The cropper itself is not trained by the JEPA loss; its fixations
+come from the frozen saliency source and the IOR mask. The figure is therefore
+not evidence that the model has learned a human scanpath policy. Its role is
+more limited: it shows that the substituted cropper produces structured,
+sequential fixations on real video frames, and that the crops passed into
+SaccadeJEPA are visually meaningful.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{../outputs/jepa_reuse_scanpaths_trained.png}
+  \caption{Fixation sequences produced by the trained
+    \texttt{GazeCropper} on four FIND test frames. Numbered red
+    markers are the five fixations in temporal order; lines connect
+    consecutive fixations. The saliency source is Arash's trained
+    \texttt{ResNetSaliency} (ResNet-18 backbone with a
+    $1{\times}1$-convolution head, drawn from the shared
+    \texttt{gazejepa.saliency} package), and the inhibition mask
+    uses the same
+    $\sigma_{\text{IOR}}{=}20$~px and decay~$0.7$ as in the
+    training run.}
+  \label{fig:loop:qualitative}
+\end{figure}
+
+\subsection{Interpretation}
+\label{subsec:loop:discussion}
+
+These results answer the feasibility question positively. With a one-component
+substitution, SaccadeJEPA can be made to operate on explicit gaze transitions,
+and the original prediction machinery still converges. The decrease in MSE is
+the same kind of JEPA signal as in the original model: the predictor approaches
+the EMA target representation. The difference is that the two views now come
+from consecutive saliency-driven fixations rather than one random affine crop.
+
+The result should be interpreted carefully. The model is not trained with a
+human scanpath loss, and it does not receive gradients through the discrete
+fixation choices. It is therefore better described as a reusable JEPA backbone
+for gaze-transition prediction, not as a complete learned gaze policy.
+
+\subsection{Limitations}
+\label{subsec:loop:limitations}
+
+The main limitations are:
+
+\begin{itemize}
+  \item \textbf{Static frames.} FIND is a video dataset, but this simulation
+        runs $T=5$ fixations on a single frozen frame.
+  \item \textbf{No fixation duration.} The model predicts where the next crop
+        is, not how long the eye stays there.
+  \item \textbf{Frozen saliency.} Arash's \texttt{ResNetSaliency} is used as a
+        fixed prior. It is not updated by the JEPA loss.
+  \item \textbf{Small training budget.} The run is five epochs on CPU, so it is
+        a feasibility check rather than a tuned final model.
+  \item \textbf{No learned policy.} A future version could learn the fixation
+        policy directly, for example with a recurrent attention model in the
+        spirit of Mnih et al.~\cite{mnih2014ram}.
+\end{itemize}
+
+% ══════════════════════════════════════════════════════════
+% SECTION 4 — Conclusion
+% ══════════════════════════════════════════════════════════
+\section{Conclusion}
+\label{sec:conclusion}
+
+This report asked whether SaccadeJEPA can be reused in a less obscure way for
+explicit gaze simulation. The answer is yes, within a carefully limited scope.
+Original SaccadeJEPA already contains the useful JEPA machinery: a context
+encoder, an EMA target encoder, a movement embedding, a predictor, and a
+representation-level prediction loss. Its limitation is the source of the
+views: one random crop pair per image.
+
+The proposed adaptation changes that source of views. Replacing
+\texttt{SaccadeCropper} with \texttt{GazeCropper} turns the model from:
+
+\begin{center}
+\texttt{image -> random crop pair -> predict representation}
+\end{center}
+
+into:
+
+\begin{center}
+\texttt{image -> saliency-driven fixation sequence -> predict next fixation}.
+\end{center}
+
+The experiment on FIND shows that this substitution is compatible with the
+upstream loss: validation prediction MSE drops from $0.2996$ to $0.0462$ after
+five CPU epochs. This is not a claim that the model fully matches human gaze,
+but it is strong feasibility evidence that SaccadeJEPA can be reused as a
+representation-space predictor over explicit gaze transitions.
+
+
+\begin{thebibliography}{99}
+
+\bibitem{bardes2022vicreg}
+A.~Bardes, J.~Ponce, and Y.~LeCun.
+\newblock {VICReg}: {V}ariance-{I}nvariance-{C}ovariance regularization for
+  self-supervised learning.
+\newblock In \emph{International Conference on Learning Representations
+  (ICLR)}, 2022.
+
+\bibitem{grill2020byol}
+J.-B. Grill, F.~Strub, F.~Altch\'e, C.~Tallec, P.~H. Richemond, E.~Buchatskaya,
+  C.~Doersch, B.~Avila~Pires, Z.~D. Guo, M.~Gheshlaghi~Azar, B.~Piot,
+  K.~Kavukcuoglu, R.~Munos, and M.~Valko.
+\newblock Bootstrap your own latent: a new approach to self-supervised
+  learning.
+\newblock In \emph{Advances in Neural Information Processing Systems
+  (NeurIPS)}, 2020.
+
+\bibitem{hou2007spectralresidual}
+X.~Hou and L.~Zhang.
+\newblock Saliency detection: a spectral residual approach.
+\newblock In \emph{Proceedings of the {IEEE} Conference on Computer Vision and
+  Pattern Recognition (CVPR)}, 2007.
+
+\bibitem{huber1964robust}
+P.~J. Huber.
+\newblock Robust estimation of a location parameter.
+\newblock \emph{Annals of Mathematical Statistics}, 35(1):73--101, 1964.
+
+\bibitem{itti1998saliency}
+L.~Itti, C.~Koch, and E.~Niebur.
+\newblock A model of saliency-based visual attention for rapid scene analysis.
+\newblock \emph{IEEE Transactions on Pattern Analysis and Machine
+  Intelligence}, 20(11):1254--1259, 1998.
+
+\bibitem{klein2000ior}
+R.~M. Klein.
+\newblock Inhibition of return.
+\newblock \emph{Trends in Cognitive Sciences}, 4(4):138--147, 2000.
+
+\bibitem{liu2016find}
+Y.~Liu and M.~Xu.
+\newblock {FIND}: a database for multi-face tracking with fixation data on
+  multiparty conversation videos.
+\newblock In \emph{Proceedings of the {IEEE} International Conference on
+  Multimedia and Expo (ICME)}, 2016.
+
+\bibitem{liu2022convnext}
+Z.~Liu, H.~Mao, C.-Y. Wu, C.~Feichtenhofer, T.~Darrell, and S.~Xie.
+\newblock A {ConvNet} for the 2020s.
+\newblock In \emph{Proceedings of the {IEEE/CVF} Conference on Computer Vision
+  and Pattern Recognition (CVPR)}, 2022.
+
+\bibitem{lumenpallidium2024jepa}
+{LumenPallidium}.
+\newblock {JEPA}: a {PyTorch} implementation of joint-embedding predictive
+  architectures, including {SaccadeJEPA}.
+\newblock Software repository, 2024.
+\newblock \url{https://github.com/LumenPallidium/jepa}, accessed 2026.
+
+\bibitem{mnih2014ram}
+V.~Mnih, N.~Heess, A.~Graves, and K.~Kavukcuoglu.
+\newblock Recurrent models of visual attention.
+\newblock In \emph{Advances in Neural Information Processing Systems
+  (NeurIPS)}, 2014.
+
+\bibitem{posner1984ior}
+M.~I. Posner and Y.~Cohen.
+\newblock Components of visual orienting.
+\newblock In H.~Bouma and D.~G. Bouwhuis, editors, \emph{Attention and
+  Performance X: Control of Language Processes}, pages 531--556. Erlbaum, 1984.
+
+\end{thebibliography}
+
+\end{document}

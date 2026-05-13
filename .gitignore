@@ -1,13 +1,40 @@
-data/
-#checkpoints/
-#outputs/
-*.pt
-*.pyc
+# Python
 __pycache__/
-.ipynb_checkpoints/
-*.npy
-*.pkl
-.env
+*.pyc
+*.pyo
 *.egg-info/
 dist/
 build/
+.venv/
+venv/
+
+# Notebook
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+
+# Local config
+.env
+
+# Project data & artefacts
+/data/
+/checkpoints/
+/outputs/
+*.npy
+*.pkl
+*.pt
+*.pth
+*.ckpt
+wandb/
+
+# LaTeX intermediate files (track .tex / .bib / .pdf only)
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.log
+*.out
+*.run.xml
+*.toc
+*.synctex.gz
