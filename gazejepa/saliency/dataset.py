@@ -1,9 +1,4 @@
 """FIND-backed (image, heatmap) Dataset for training saliency predictors.
-
-Wraps :mod:`gazejepa.data.find_dataset`. Frames are loaded at any square
-``image_size`` and emitted as raw ``[0, 1]`` ``float32`` tensors —
-ImageNet normalisation is the responsibility of each saliency model
-(see :class:`ResNetSaliency._compute`), not the dataset.
 """
 
 from __future__ import annotations

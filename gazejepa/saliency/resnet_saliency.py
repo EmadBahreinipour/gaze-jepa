@@ -1,4 +1,4 @@
-"""ResNet-18 backbone + lightweight head saliency predictor (Arash's deliverable).
+"""ResNet-18 backbone + lightweight head saliency predictor.
 
 Internally rescales any input to the ResNet-pretrained 224×224 grid and applies
 ImageNet normalisation, so callers can pass raw ``[0, 1]`` images at any

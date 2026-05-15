@@ -1,6 +1,6 @@
 """Image-centered Gaussian saliency (FIND-style center prior).
 
-Two flavours, both from Arash's saliency-comparison study:
+Two flavours, both from my saliency-comparison study:
 
 - :class:`CenterBiasSaliency` — fixed parametric Gaussian, no data needed.
   Precomputed at ``image_size × image_size`` with σ = ``image_size / 4``;
@@ -52,7 +52,6 @@ class CenterBiasSaliency(SaliencySource):
         return m.unsqueeze(0).expand(b, -1, -1).contiguous()
 
 
-# Alias for callers that prefer Arash's original name.
 CenterBiasParametric = CenterBiasSaliency
 
 
@@ -60,7 +59,7 @@ class CenterBiasDataFit(SaliencySource):
     """Mean fixation heatmap over the FIND training split.
 
     On first instantiation, the cache file is loaded if present; otherwise
-    call :meth:`build_and_cache` once to compute it (10–20 min on a laptop).
+    call :method:`build_and_cache` once to compute it (10–20 min on a laptop).
     The cached map is stored at native ``image_size × image_size`` and the
     ``SaliencySource`` contract resamples to whatever resolution callers need.
     """
