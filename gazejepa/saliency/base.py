@@ -1,8 +1,7 @@
-"""Abstract base class for saliency sources.
+"""Base class for all saliency sources.
 
-Subclasses implement ``_compute`` (raw, possibly low-res, possibly un-normalised);
-``__call__`` resamples to image resolution and sum-normalises per image so any
-source plugs in regardless of its native output size.
+Subclasses implement _compute(); __call__ handles resizing to input resolution
+and per-image sum normalization.
 """
 
 from __future__ import annotations
@@ -14,16 +13,14 @@ import torch.nn.functional as F
 
 
 class SaliencySource(ABC):
-    """Abstract base class for saliency sources."""
-
     name: str = "abstract"
 
     @abstractmethod
     def _compute(self, images: torch.Tensor) -> torch.Tensor:
-        """Raw saliency map ``(B, H_out, W_out)``; need not be normalised."""
+        """Return raw saliency (B, H_out, W_out); normalization is done in __call__."""
 
     def __call__(self, images: torch.Tensor) -> torch.Tensor:
-        """Contract-compliant saliency: ``(B, H, W)`` float32, non-negative, sum-to-1 per image."""
+        """Returns (B, H, W) float32 saliency, non-negative, summing to 1 per image."""
         if not isinstance(images, torch.Tensor):
             raise TypeError(f"Expected torch.Tensor, got {type(images).__name__}")
         if images.dim() != 4 or images.shape[1] != 3:

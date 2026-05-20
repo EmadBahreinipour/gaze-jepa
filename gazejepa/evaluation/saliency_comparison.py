@@ -1,8 +1,4 @@
-"""Four-source saliency comparison on a FIND split.
-
-Headline driver for Arash's saliency-prediction track. Evaluates random,
-center-bias, classical, and a learned source on
-the same frames using :mod:`gazejepa.evaluation.saliency_metrics`.
+"""Saliency comparison on a FIND split.
 """
 
 from __future__ import annotations
@@ -106,14 +102,14 @@ def run_full_comparison(
     """
     if sources is None:
         from gazejepa.saliency.center_bias import CenterBiasSaliency
-        from gazejepa.saliency.itti_koch import IttiKochSaliency
+        from gazejepa.saliency.spectral_residual import SpectralResidualSaliency
         from gazejepa.saliency.random import RandomSaliency
         from gazejepa.saliency.resnet_saliency import ResNetSaliency
 
         built: list[SaliencySource] = [
             RandomSaliency(),
             CenterBiasSaliency(),
-            IttiKochSaliency(),
+            SpectralResidualSaliency(),
         ]
         if resnet_checkpoint and Path(resnet_checkpoint).is_file():
             built.append(ResNetSaliency.load(str(resnet_checkpoint), device=device))

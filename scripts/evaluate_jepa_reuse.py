@@ -60,7 +60,7 @@ from gazejepa.evaluation.evaluate import (  # noqa: E402
 from gazejepa.evaluation.scanpath_metrics import multimatch_backend  # noqa: E402
 from gazejepa.saliency import (  # noqa: E402
     CenterBiasParametric,
-    IttiKochSaliency,
+    SpectralResidualSaliency,
     RandomSaliency,
     ResNetSaliency,
     SaliencySource,
@@ -73,7 +73,7 @@ from gazejepa.saliency import (  # noqa: E402
 
 
 _SALIENCY_CHOICES = (
-    "resnet", "itti_koch", "center_bias", "random",
+    "resnet", "spectral_residual", "center_bias", "random",
 )
 
 
@@ -85,9 +85,7 @@ def build_saliency(
 ) -> SaliencySource:
     """Instantiate a saliency source by name.
 
-    The default ``resnet`` source loads Arash's trained
-    ``ResNetSaliency`` checkpoint, matching the training-time default
-    used by ``scripts/train_jepa_reuse.py``.
+    The default ``resnet`` source loads the trained ResNetSaliency checkpoint.
     """
     name = name.lower()
     if name == "resnet":
@@ -98,8 +96,8 @@ def build_saliency(
                 f"scripts/train_saliency.py or pass --resnet-checkpoint."
             )
         return ResNetSaliency.load(str(ckpt), device=device)
-    if name == "itti_koch":
-        return IttiKochSaliency()
+    if name == "spectral_residual":
+        return SpectralResidualSaliency()
     if name == "center_bias":
         return CenterBiasParametric(size=image_size)
     if name == "random":

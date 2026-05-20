@@ -1,8 +1,6 @@
 """Small CNN saliency predictor (~50K params) trained on FIND fixation heatmaps.
 
-Lightweight alternative to :class:`ResNetSaliency` — used as a sanity-check
-baseline that the data-driven signal alone (no ImageNet prior) can beat
-classical saliency.
+Lightweight alternative to ResNetSaliency with no ImageNet prior.
 """
 
 from __future__ import annotations
@@ -20,13 +18,7 @@ _IMAGENET_STD: tuple[float, float, float] = (0.229, 0.224, 0.225)
 
 
 class LearnedSaliency(nn.Module, SaliencySource):
-    """4-conv CNN, GroupNorm + GELU, one stride-2 downsample.
-
-    Input is internally ImageNet-normalised so callers can pass raw ``[0, 1]``
-    tensors at any resolution; the network is fully convolutional. Output
-    grid is the input H/2 × W/2; the ``SaliencySource`` contract resamples to
-    full resolution.
-    """
+    """4-layer CNN with one stride-2 downsample; output is H/2 × W/2."""
 
     name = "learned"
 
@@ -57,8 +49,7 @@ class LearnedSaliency(nn.Module, SaliencySource):
         b = logits.shape[0]
         return logits.view(b, -1).softmax(dim=1).view_as(logits)
 
-    # ``nn.Module.__call__`` dispatches to ``forward``; route it through the
-    # ``SaliencySource`` contract so callers get the validated, sum-to-1 map.
+    # nn.Module routes calls through forward(); override to use SaliencySource.__call__.
     def forward(self, images: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
         return SaliencySource.__call__(self, images)
 

@@ -36,6 +36,6 @@ dependencies:
 
   - pip:
       # Vision / eye-tracking (not on conda)
-      - opencv-contrib-python-headless   # ships cv2.saliency for IttiKochSaliency
+      - opencv-contrib-python-headless   # ships cv2.saliency for SpectralResidualSaliency
       - multimatch_gaze   # canonical Dewhurst-2012 MultiMatch
       - einops            # used by Arash's saliency models

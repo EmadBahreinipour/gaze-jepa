@@ -1,16 +1,4 @@
-"""Image-centered Gaussian saliency (FIND-style center prior).
-
-Two flavours, both from my saliency-comparison study:
-
-- :class:`CenterBiasSaliency` — fixed parametric Gaussian, no data needed.
-  Precomputed at ``image_size × image_size`` with σ = ``image_size / 4``;
-  the :class:`SaliencySource` ABC resamples to whatever resolution callers
-  need.
-- :class:`CenterBiasDataFit` — average fixation heatmap over the FIND training
-  split. Standard "data-fit center bias" from the saliency literature;
-  expected to outperform the parametric variant on FIND because the dataset
-  is face-heavy and the fitted bias captures the true face-centered pattern.
-"""
+"""Center bias saliency — parametric Gaussian and data-fit variants."""
 
 from __future__ import annotations
 
@@ -56,12 +44,9 @@ CenterBiasParametric = CenterBiasSaliency
 
 
 class CenterBiasDataFit(SaliencySource):
-    """Mean fixation heatmap over the FIND training split.
+    """Mean fixation heatmap fitted over the FIND training split.
 
-    On first instantiation, the cache file is loaded if present; otherwise
-    call :method:`build_and_cache` once to compute it (10–20 min on a laptop).
-    The cached map is stored at native ``image_size × image_size`` and the
-    ``SaliencySource`` contract resamples to whatever resolution callers need.
+    Loads from cache on first use; call build_and_cache() once to create it.
     """
 
     name = "center_bias_data_fit"

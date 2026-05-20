@@ -10,7 +10,7 @@ from gazejepa.saliency.center_bias import (
     CenterBiasParametric,
     CenterBiasSaliency,
 )
-from gazejepa.saliency.itti_koch import IttiKochSaliency
+from gazejepa.saliency.spectral_residual import SpectralResidualSaliency
 from gazejepa.saliency.learned import LearnedSaliency
 from gazejepa.saliency.random import RandomSaliency
 from gazejepa.saliency.resnet_saliency import ResNetSaliency
@@ -20,7 +20,7 @@ __all__ = [
     "CenterBiasDataFit",
     "CenterBiasParametric",
     "CenterBiasSaliency",
-    "IttiKochSaliency",
+    "SpectralResidualSaliency",
     "LearnedSaliency",
     "RandomSaliency",
     "ResNetSaliency",

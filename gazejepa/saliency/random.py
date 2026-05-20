@@ -1,6 +1,4 @@
-"""Uniform random saliency — SaccadeJEPA's implicit baseline made explicit.
-
-"""
+"""Uniform random saliency — baseline matching SaccadeJEPA's random crop selection."""
 
 from __future__ import annotations
 
@@ -10,7 +8,7 @@ from gazejepa.saliency.base import SaliencySource, assert_saliency_contract
 
 
 class RandomSaliency(SaliencySource):
-    """Per-pixel uniform random saliency. Lower-bound for the comparison study."""
+    """Uniform random saliency map. Serves as a lower-bound baseline."""
 
     name = "random"
 

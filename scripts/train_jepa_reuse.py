@@ -24,7 +24,7 @@ from gazejepa.data import (
 from gazejepa.jepa_reuse import make_gaze_jepa
 from gazejepa.saliency import (
     CenterBiasSaliency,
-    IttiKochSaliency,
+    SpectralResidualSaliency,
     RandomSaliency,
     ResNetSaliency,
 )
@@ -168,8 +168,8 @@ def build_saliency_source(args: argparse.Namespace):
                 f"{ckpt} (override with --resnet-checkpoint)."
             )
         return ResNetSaliency.load(str(ckpt))
-    if name == "itti_koch":
-        return IttiKochSaliency()
+    if name == "spectral_residual":
+        return SpectralResidualSaliency()
     if name == "center_bias":
         return CenterBiasSaliency(size=(args.image_size, args.image_size))
     if name == "random":
@@ -414,11 +414,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--saliency",
         default="resnet",
-        choices=["resnet", "itti_koch", "center_bias", "random"],
+        choices=["resnet", "spectral_residual", "center_bias", "random"],
         help=(
-            "Saliency source for GazeCropper. Default 'resnet' uses Arash's "
+            "Saliency source for GazeCropper. Default 'resnet' loads the "
             "trained ResNetSaliency checkpoint (best AUC on FIND); the "
-            "other options are for ablations or as fallbacks."
+            "other options are for ablations or fallbacks."
         ),
     )
     p.add_argument(

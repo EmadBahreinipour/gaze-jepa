@@ -1,9 +1,7 @@
 """ResNet-18 backbone + lightweight head saliency predictor.
 
-Internally rescales any input to the ResNet-pretrained 224×224 grid and applies
-ImageNet normalisation, so callers can pass raw ``[0, 1]`` images at any
-resolution. ``SaliencySource.__call__`` then resamples back to the input size
-and re-normalises to sum-to-1.
+Internally rescales input to 224×224 and applies ImageNet normalisation;
+callers pass raw [0, 1] images at any resolution.
 """
 
 from __future__ import annotations
@@ -94,8 +92,7 @@ class ResNetSaliency(nn.Module, SaliencySource):
         b = logits.shape[0]
         return logits.view(b, -1).softmax(dim=1).view_as(logits)
 
-    # ``nn.Module.__call__`` dispatches to ``forward``; route it through the
-    # ``SaliencySource`` contract so callers get the validated, sum-to-1 map.
+    # nn.Module routes calls through forward(); override to use SaliencySource.__call__.
     def forward(self, images: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
         return SaliencySource.__call__(self, images)
 
