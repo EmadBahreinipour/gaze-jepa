@@ -12,3 +12,4 @@ opencv-contrib-python-headless
 scikit-learn
 einops
 multimatch_gaze
+transformers>=4.38

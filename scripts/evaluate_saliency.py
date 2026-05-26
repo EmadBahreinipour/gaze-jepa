@@ -1,9 +1,10 @@
-"""CLI entry point for the four-source saliency comparison on a FIND split.
+"""CLI entry point for the saliency comparison on a FIND split.
 
 Usage:
     python scripts/evaluate_saliency.py
     python scripts/evaluate_saliency.py --split val --device cuda \
-        --resnet-checkpoint checkpoints/saliency/resnet_saliency_best.pt
+        --resnet-checkpoint gazejepa/checkpoints/resnet_saliency_best.pt \
+        --ijepa-checkpoint gazejepa/checkpoints/ijepa_saliency_best.pt
 """
 
 from __future__ import annotations
@@ -33,8 +34,13 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--resnet-checkpoint",
-        default="checkpoints/saliency/resnet_saliency_best.pt",
+        default="gazejepa/checkpoints/resnet_saliency_best.pt",
         help="ResNetSaliency checkpoint; skipped if missing.",
+    )
+    p.add_argument(
+        "--ijepa-checkpoint",
+        default="gazejepa/checkpoints/ijepa_saliency_best.pt",
+        help="IJepaSaliency checkpoint; skipped if missing.",
     )
     p.add_argument(
         "--output-csv",
@@ -49,6 +55,7 @@ def main() -> None:
     run_full_comparison(
         args.data_root,
         resnet_checkpoint=args.resnet_checkpoint,
+        ijepa_checkpoint=args.ijepa_checkpoint,
         output_csv=args.output_csv,
         split=args.split,
         image_size=args.image_size,

@@ -91,7 +91,8 @@ def run_full_comparison(
     data_root: str | os.PathLike[str],
     *,
     sources: Iterable[SaliencySource] | None = None,
-    resnet_checkpoint: str | os.PathLike[str] | None = "checkpoints/saliency/resnet_saliency_best.pt",
+    resnet_checkpoint: str | os.PathLike[str] | None = "gazejepa/checkpoints/resnet_saliency_best.pt",
+    ijepa_checkpoint: str | os.PathLike[str] | None = "gazejepa/checkpoints/ijepa_saliency_best.pt",
     output_csv: str | os.PathLike[str] = "report_arash/data/saliency_comparison.csv",
     split: str = "test",
     image_size: int = 224,
@@ -116,7 +117,15 @@ def run_full_comparison(
         else:
             print(
                 f"[saliency_comparison] ResNet checkpoint not found at "
-                f"{resnet_checkpoint}; skipping the learned source."
+                f"{resnet_checkpoint}; skipping."
+            )
+        if ijepa_checkpoint and Path(ijepa_checkpoint).is_file():
+            from gazejepa.saliency.ijepa_saliency import IJepaSaliency
+            built.append(IJepaSaliency.load(str(ijepa_checkpoint), device=device))
+        else:
+            print(
+                f"[saliency_comparison] I-JEPA checkpoint not found at "
+                f"{ijepa_checkpoint}; skipping."
             )
         sources_iter: Iterable[SaliencySource] = built
     else:

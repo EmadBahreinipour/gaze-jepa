@@ -1,9 +1,9 @@
-"""Training driver for ``ResNetSaliency`` / ``LearnedSaliency`` on FIND.
+"""Training driver for saliency models on FIND.
 
-KL(GT ∥ pred) computed at the model's native low-resolution output (14×14
-for ResNetSaliency, H/2 × W/2 for LearnedSaliency) — keeping the loss in
-the few-hundred-bin regime where the gradient is well-conditioned. The
-ground-truth heatmap is bilinearly downsampled to that grid and re-normalised.
+Supports ResNetSaliency (14×14 output grid), IJepaSaliency (16×16), and
+LearnedSaliency. KL(GT ∥ pred) is computed at the model's native low
+resolution — keeping the loss in the few-hundred-bin regime where the
+gradient is well-conditioned.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from gazejepa.evaluation.saliency_metrics import auc_score, cc_score, nss_score
 from gazejepa.saliency.dataset import FINDSaliencyDataset
 
 if TYPE_CHECKING:
+    from gazejepa.saliency.ijepa_saliency import IJepaSaliency
     from gazejepa.saliency.learned import LearnedSaliency
     from gazejepa.saliency.resnet_saliency import ResNetSaliency
 
@@ -42,7 +43,7 @@ def _kl_loss(logits: torch.Tensor, gt_heatmaps: torch.Tensor) -> torch.Tensor:
 
 
 def _evaluate(
-    model: "ResNetSaliency | LearnedSaliency",
+    model: "ResNetSaliency | IJepaSaliency | LearnedSaliency",
     loader: DataLoader,
     device: torch.device,
 ) -> dict[str, float]:
@@ -97,10 +98,10 @@ def train_saliency(
     num_workers: int = 2,
     seed: int = 42,
     device: torch.device | str | None = None,
-) -> "ResNetSaliency | LearnedSaliency":
+) -> "ResNetSaliency | IJepaSaliency | LearnedSaliency":
     """Train a saliency predictor on FIND. Returns the in-memory model."""
-    if model_type not in {"resnet", "learned"}:
-        raise ValueError(f"model_type must be 'resnet' or 'learned', got {model_type!r}")
+    if model_type not in {"resnet", "ijepa", "learned"}:
+        raise ValueError(f"model_type must be 'resnet', 'ijepa', or 'learned', got {model_type!r}")
 
     if device is None:
         device = torch.device(
@@ -126,9 +127,12 @@ def train_saliency(
 
     if model_type == "resnet":
         from gazejepa.saliency.resnet_saliency import ResNetSaliency
-        model: "ResNetSaliency | LearnedSaliency" = ResNetSaliency(
+        model: "ResNetSaliency | IJepaSaliency | LearnedSaliency" = ResNetSaliency(
             pretrained=True, freeze_backbone=True,
         ).to(device)
+    elif model_type == "ijepa":
+        from gazejepa.saliency.ijepa_saliency import IJepaSaliency
+        model = IJepaSaliency(pretrained=True).to(device)
     else:
         from gazejepa.saliency.learned import LearnedSaliency
         model = LearnedSaliency().to(device)
@@ -155,7 +159,13 @@ def train_saliency(
         for images, gt_heatmaps in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}"):
             images = images.to(device)
             gt_heatmaps = gt_heatmaps.to(device)
-            logits = model.forward_logits(images)
+            # Dataset yields raw [0,1]. ResNet/I-JEPA forward_logits expects
+            # ImageNet-normalised input; LearnedSaliency normalises internally.
+            if model_type in {"resnet", "ijepa"}:
+                images_in = (images - model._imagenet_mean) / model._imagenet_std
+            else:
+                images_in = images
+            logits = model.forward_logits(images_in)
             loss = _kl_loss(logits, gt_heatmaps)
 
             optimizer.zero_grad()
