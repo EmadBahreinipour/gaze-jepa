@@ -35,8 +35,8 @@ change. The adaptation replaces only the random cropper with
 \texttt{GazeCropper}, which generates saliency~$\times$~inhibition-of-return
 fixation sequences while leaving the context encoder, EMA target encoder,
 predictor, and Huber~+~cycle~+~VICReg objective unchanged. On the FIND dataset,
-the patched model reduces validation prediction MSE from $0.30$ to $0.046$
-after five CPU epochs ($\sim$85\% relative drop). This does not claim a complete
+the patched model reduces predictor MSE from $0.30$ on an untrained pass to
+$0.045$ on the validation pool after five CPU epochs ($\sim$85\% relative drop). This does not claim a complete
 learned human gaze policy; it shows that the original JEPA machinery remains
 trainable when random crop pairs are replaced by structured gaze transitions.
 \end{abstract}
@@ -422,11 +422,12 @@ target representation of the target fixation crop.
 \subsection{Quantitative Results}
 \label{subsec:loop:results}
 
-The main result is the validation prediction MSE (Table~\ref{tab:loop:mse}).
-Before training, the patched model gives a validation MSE of $0.2996$. After
-five epochs, the matched validation pass gives $0.0462$. This is an $84.6\%$
-reduction. The result means that the predictor learned to anticipate the target
-fixation representation under the saliency-driven cropper.
+The main result is the per-epoch validation prediction MSE
+(Table~\ref{tab:loop:mse}). On an untrained forward pass, the patched model
+gives a prediction MSE of $0.2953$. After five epochs, the end-of-epoch
+validation MSE on the held-out pool is $0.0447$, an approximate $85\%$
+reduction. The result means that the predictor learned to anticipate the
+target fixation representation under the saliency-driven cropper.
 
 \begin{table}[ht]
   \centering
@@ -434,26 +435,21 @@ fixation representation under the saliency-driven cropper.
     \toprule
     Phase & Prediction MSE \\
     \midrule
-    Untrained, validation pool ($n_{\mathrm{val}}{=}24$)        & $0.2996$ \\
+    Untrained, single test frame                                & $0.2953$ \\
     \addlinespace
     Validation, end of epoch~$1$                                & $0.0963$ \\
     Validation, end of epoch~$2$                                & $0.0471$ \\
     Validation, end of epoch~$3$                                & $0.0459$ \\
     Validation, end of epoch~$4$                                & $0.0428$ \\
     Validation, end of epoch~$5$                                & $0.0447$ \\
-    \addlinespace
-    Trained, validation pool (matched val pass on \texttt{final.pt}) & $0.0462$ \\
     \bottomrule
   \end{tabular}
-  \caption{Predictor mean-squared error against the EMA target
-    encoder, before and after a five-epoch training run on FIND.
-    All numbers are averaged across 24 validation frames from the six held-out
-    validation videos, with each frame yielding four fixation transitions
-    ($T{=}5$). The saliency source is Arash's trained
-    \texttt{ResNetSaliency}. The last row re-loads the final checkpoint and
-    replays the validation pass in matched conditions. The training-time number
-    recorded at end of epoch~$5$ ($0.0447$) and the post-hoc reproduction
-    ($0.0462$) agree closely despite stochastic fixation sampling.}
+  \caption{Predictor mean-squared error against the EMA target encoder. The
+    untrained baseline is a single forward pass on a held-out FIND test
+    frame. The per-epoch values are averaged across 24 frames from six
+    held-out validation videos, with each frame yielding four fixation
+    transitions ($T{=}5$). The saliency source is Arash's trained
+    \texttt{ResNetSaliency}.}
   \label{tab:loop:mse}
 \end{table}
 
@@ -545,10 +541,11 @@ into:
 \end{center}
 
 The experiment on FIND shows that this substitution is compatible with the
-upstream loss: validation prediction MSE drops from $0.2996$ to $0.0462$ after
-five CPU epochs. This is not a claim that the model fully matches human gaze,
-but it is strong feasibility evidence that SaccadeJEPA can be reused as a
-representation-space predictor over explicit gaze transitions.
+upstream loss: prediction MSE drops from $0.2953$ on an untrained pass to
+$0.0447$ at the end of epoch~$5$, an approximate $85\%$ reduction. This is
+not a claim that the model fully matches human gaze, but it is strong
+feasibility evidence that SaccadeJEPA can be reused as a representation-space
+predictor over explicit gaze transitions.
 
 
 \begin{thebibliography}{99}
