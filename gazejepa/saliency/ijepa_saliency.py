@@ -66,28 +66,18 @@ class IJepaSaliency(nn.Module, SaliencySource):
             p.requires_grad = False
         self._backbone_frozen = True
 
-    def unfreeze_backbone(self) -> None:
-        for p in self.backbone.parameters():
-            p.requires_grad = True
-        self._backbone_frozen = False
-
     def train(self, mode: bool = True):
         super().train(mode)
         if mode and self._backbone_frozen:
             self.backbone.eval()
         return self
 
-    def _extract_features(self, images: torch.Tensor) -> torch.Tensor:
-        """Run backbone; returns (B, 1280, 16, 16) spatial feature map."""
-        out = self.backbone(pixel_values=images)
-        patches = out.last_hidden_state  # (B, 256, 1280) — no CLS token
-        b = patches.shape[0]
-        return patches.permute(0, 2, 1).reshape(b, 1280, 16, 16)
-
     def forward_logits(self, images: torch.Tensor) -> torch.Tensor:
         """Backbone + head; expects ImageNet-normalised 224×224 input."""
-        feat = self._extract_features(images)  # (B, 1280, 16, 16)
-        return self.head(feat).squeeze(1)       # (B, 16, 16)
+        patches = self.backbone(pixel_values=images).last_hidden_state  # (B, 256, 1280)
+        b = patches.shape[0]
+        feat = patches.permute(0, 2, 1).reshape(b, 1280, 16, 16)
+        return self.head(feat).squeeze(1)  # (B, 16, 16)
 
     def _compute(self, images: torch.Tensor) -> torch.Tensor:
         if images.shape[-2:] != (_IJEPA_INPUT_SIZE, _IJEPA_INPUT_SIZE):
@@ -96,7 +86,9 @@ class IJepaSaliency(nn.Module, SaliencySource):
                 mode="bilinear", align_corners=False,
             )
         normed = (images - self._imagenet_mean) / self._imagenet_std
-        return self.forward_logits(normed)  # (B, 16, 16)
+        logits = self.forward_logits(normed)  # (B, 16, 16)
+        b = logits.shape[0]
+        return logits.view(b, -1).softmax(dim=1).view_as(logits)
 
     # nn.Module routes calls through forward(); override to use SaliencySource.__call__.
     def forward(self, images: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
@@ -110,7 +102,9 @@ class IJepaSaliency(nn.Module, SaliencySource):
     def load(
         cls, path: str, device: str | torch.device = "cpu",
     ) -> "IJepaSaliency":
-        model = cls(pretrained=True)  # backbone architecture must match checkpoint
+        # pretrained=True ensures the ViT-H/14 config is correct; the checkpoint
+        # weights then overwrite the downloaded weights, so no fine-tuning is lost.
+        model = cls(pretrained=True)
         result = model.load_state_dict(
             torch.load(path, map_location=device), strict=False,
         )

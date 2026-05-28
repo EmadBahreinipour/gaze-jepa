@@ -92,15 +92,6 @@ def cc_score(saliency_map, gt_heatmap):
     return float(np.corrcoef(s, g)[0, 1])
 
 
-def compute_all_metrics(saliency_map, fixation_points, gt_heatmap):
-    """Compute AUC, NSS, and CC. Returns ``{'AUC': ..., 'NSS': ..., 'CC': ...}``."""
-    return {
-        'AUC': auc_score(saliency_map, fixation_points),
-        'NSS': nss_score(saliency_map, fixation_points),
-        'CC': cc_score(saliency_map, gt_heatmap),
-    }
-
-
 def center_bias_baseline(img_h, img_w, sigma_frac=0.25):
     """Image-centered Gaussian. On FIND, any saliency model should beat this."""
     cy, cx = img_h / 2, img_w / 2
@@ -110,11 +101,6 @@ def center_bias_baseline(img_h, img_w, sigma_frac=0.25):
     yy, xx = np.mgrid[0:img_h, 0:img_w]
     baseline = np.exp(-((xx - cx)**2 / (2 * sigma_x**2) + (yy - cy)**2 / (2 * sigma_y**2)))
     return baseline / baseline.max()
-
-
-def uniform_random_baseline(img_h, img_w):
-    """Flat saliency. Yields AUC ≈ 0.5, NSS ≈ 0, CC ≈ 0."""
-    return np.ones((img_h, img_w))
 
 
 if __name__ == "__main__":
@@ -140,14 +126,13 @@ if __name__ == "__main__":
     baselines = {
         "Ground truth (upper bound)": gt_heatmap,
         "Center bias": center_bias_baseline(img_h, img_w),
-        "Uniform random (lower bound)": uniform_random_baseline(img_h, img_w),
+        "Uniform random (lower bound)": np.ones((img_h, img_w)),
     }
 
     print(f"{'Baseline':<35} {'AUC':>6} {'NSS':>6} {'CC':>6}")
     print("-" * 58)
     for name, sal_map in baselines.items():
-        metrics = compute_all_metrics(sal_map, fixations, gt_heatmap)
-        print(f"{name:<35} {metrics['AUC']:6.3f} {metrics['NSS']:6.2f} {metrics['CC']:6.3f}")
+        print(f"{name:<35} {auc_score(sal_map, fixations):6.3f} {nss_score(sal_map, fixations):6.2f} {cc_score(sal_map, gt_heatmap):6.3f}")
 
     print()
     print("Expected ranges for a good learned saliency model:")

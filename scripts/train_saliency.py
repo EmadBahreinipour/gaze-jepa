@@ -15,7 +15,7 @@ from gazejepa.saliency.training import train_saliency
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
-        "--model", default="resnet", choices=["resnet", "ijepa", "learned"],
+        "--model", default="resnet", choices=["resnet", "ijepa"],
         help="Which backbone to train.",
     )
     p.add_argument(

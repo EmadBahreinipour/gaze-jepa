@@ -1,11 +1,7 @@
-"""Center bias saliency — parametric Gaussian and data-fit variants."""
+"""Center bias saliency — fixed 2D Gaussian centered on the image."""
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
-import numpy as np
 import torch
 
 from gazejepa.saliency.base import SaliencySource, assert_saliency_contract
@@ -41,95 +37,6 @@ class CenterBiasSaliency(SaliencySource):
 
 
 CenterBiasParametric = CenterBiasSaliency
-
-
-class CenterBiasDataFit(SaliencySource):
-    """Mean fixation heatmap fitted over the FIND training split.
-
-    Loads from cache on first use; call build_and_cache() once to create it.
-    """
-
-    name = "center_bias_data_fit"
-
-    def __init__(
-        self,
-        cache_path: str | os.PathLike[str] = "outputs/saliency/center_bias_train_avg.npy",
-        image_size: int = 224,
-    ):
-        if image_size <= 0:
-            raise ValueError(f"image_size must be positive, got {image_size}")
-        self.cache_path = Path(cache_path)
-        self.image_size = int(image_size)
-        self._map: torch.Tensor | None = None
-
-    def build_and_cache(
-        self,
-        data_root: str | os.PathLike[str],
-        sigma: float = 20.0,
-        frame_stride: int = 10,
-        min_observers: int = 5,
-        seed: int = 42,
-    ) -> None:
-        """Compute and cache the average training-split fixation heatmap."""
-        from gazejepa.data import (
-            get_frame_count,
-            get_frame_fixations,
-            get_split,
-            load_fixations,
-            make_heatmap,
-            rescale_fixations,
-        )
-
-        train_ids = get_split(data_root, seed=seed)["train"]
-        accumulator = np.zeros(
-            (self.image_size, self.image_size), dtype=np.float64,
-        )
-        count = 0
-
-        for vid in train_ids:
-            fix_array = load_fixations(data_root, vid)
-            n_frames = get_frame_count(data_root, vid)
-            for f in range(0, n_frames, frame_stride):
-                fixations = get_frame_fixations(fix_array, f)
-                if len(fixations) < min_observers:
-                    continue
-                fixations_scaled = rescale_fixations(
-                    fixations,
-                    src_size=(1280, 720),
-                    dst_size=(self.image_size, self.image_size),
-                )
-                heatmap = make_heatmap(
-                    fixations_scaled, self.image_size, self.image_size, sigma=sigma,
-                )
-                accumulator += heatmap
-                count += 1
-
-        if count == 0:
-            raise RuntimeError(
-                "No frames passed the min-observer filter; cannot fit center bias."
-            )
-
-        avg = accumulator / count
-        avg /= max(avg.sum(), 1e-12)
-        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-        np.save(self.cache_path, avg.astype(np.float32))
-        self._map = torch.from_numpy(avg.astype(np.float32))
-
-    def _ensure_loaded(self, device: torch.device) -> torch.Tensor:
-        if self._map is None:
-            if not self.cache_path.is_file():
-                raise FileNotFoundError(
-                    f"CenterBiasDataFit cache missing at {self.cache_path}; "
-                    "call build_and_cache(data_root) once first."
-                )
-            arr = np.load(self.cache_path)
-            self._map = torch.from_numpy(arr.astype(np.float32))
-        return self._map.to(device)
-
-    def _compute(self, images: torch.Tensor) -> torch.Tensor:
-        b = images.shape[0]
-        m = self._ensure_loaded(images.device)
-        return m.unsqueeze(0).expand(b, -1, -1).contiguous()
 
 
 if __name__ == "__main__":

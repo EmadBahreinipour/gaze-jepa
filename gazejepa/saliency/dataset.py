@@ -8,45 +8,20 @@ import pickle
 from pathlib import Path
 
 import numpy as np
-import scipy.io
 import torch
 from torch.utils.data import Dataset
 
 from gazejepa.data import (
     FIND_NATIVE_H,
     FIND_NATIVE_W,
+    MIN_OBSERVERS_PER_FRAME,
+    get_frame_count,
+    get_frame_fixations,
     get_split,
+    load_fixations,
     load_frame,
+    rescale_fixations,
 )
-
-
-# ── fixation helpers (read from fix_data_NEW, the original FIND format) ──────
-
-def _load_fixations(data_root: str, video_id: str) -> np.ndarray:
-    """``(n_observers, n_frames, 2)`` float64 from fix_data_NEW/{video_id}.mat."""
-    path = Path(data_root) / "Our_database" / "fix_data_NEW" / f"{video_id}.mat"
-    mat = scipy.io.loadmat(str(path))
-    arr = mat["curr_v_all_s"]          # (39, 1) object array
-    n_obs = arr.shape[0]
-    n_frames = arr[0][0].shape[0]
-    out = np.zeros((n_obs, n_frames, 2), dtype=np.float64)
-    for obs in range(n_obs):
-        out[obs] = arr[obs][0].astype(np.float64)
-    return out
-
-
-def _get_frame_fixations(fix_array: np.ndarray, frame_idx: int) -> np.ndarray:
-    """``(n_observers, 2)`` (x, y) for one frame."""
-    return fix_array[:, frame_idx, :]
-
-
-def _rescale_fixations(
-    fixations: np.ndarray, src_w: int, src_h: int, dst: int,
-) -> np.ndarray:
-    out = fixations.copy().astype(np.float64)
-    out[:, 0] = out[:, 0] * dst / src_w
-    out[:, 1] = out[:, 1] * dst / src_h
-    return out
 
 
 def _make_heatmap(fixations: np.ndarray, image_size: int, sigma: float) -> np.ndarray:
@@ -94,7 +69,7 @@ class FINDSaliencyDataset(Dataset):
         image_size: int = 224,
         sigma: float = 20.0,
         frame_stride: int = 10,
-        min_observers: int = 5,
+        min_observers: int = MIN_OBSERVERS_PER_FRAME,
         cache_dir: str | os.PathLike[str] = "outputs/saliency",
         seed: int = 42,
     ):
@@ -121,14 +96,11 @@ class FINDSaliencyDataset(Dataset):
             self.index: list[tuple[str, int]] = []
 
             for vid in video_ids:
-                fix_array = _load_fixations(self.data_root, vid)
+                fix_array = load_fixations(self.data_root, vid)
                 self.fix_arrays[vid] = fix_array
-                n_frames = fix_array.shape[1]
+                n_frames = get_frame_count(self.data_root, vid)
                 for f in range(0, n_frames, frame_stride):
-                    fixations = _get_frame_fixations(fix_array, f)
-                    # count non-zero observers (zeros = missing in the mat file)
-                    valid = np.any(fixations > 0, axis=1)
-                    if valid.sum() >= min_observers:
+                    if len(get_frame_fixations(fix_array, f)) >= min_observers:
                         self.index.append((vid, f))
 
             with cache_path.open("wb") as fh:
@@ -142,9 +114,11 @@ class FINDSaliencyDataset(Dataset):
         frame = load_frame(self.data_root, video_id, frame_idx, size=self.image_size)
         image = torch.from_numpy(frame).permute(2, 0, 1).float() / 255.0
 
-        fixations = _get_frame_fixations(self.fix_arrays[video_id], frame_idx)
-        fixations_scaled = _rescale_fixations(
-            fixations, FIND_NATIVE_W, FIND_NATIVE_H, self.image_size,
+        fixations = get_frame_fixations(self.fix_arrays[video_id], frame_idx)
+        fixations_scaled = rescale_fixations(
+            fixations,
+            src_size=(FIND_NATIVE_W, FIND_NATIVE_H),
+            dst_size=(self.image_size, self.image_size),
         )
         heatmap = _make_heatmap(fixations_scaled, self.image_size, self.sigma)
         return image, torch.from_numpy(heatmap)

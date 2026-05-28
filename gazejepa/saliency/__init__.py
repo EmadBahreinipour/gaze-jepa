@@ -6,23 +6,19 @@ sum-normalised per-image output; :class:`SaliencySource` enforces this.
 
 from gazejepa.saliency.base import SaliencySource
 from gazejepa.saliency.center_bias import (
-    CenterBiasDataFit,
     CenterBiasParametric,
     CenterBiasSaliency,
 )
 from gazejepa.saliency.spectral_residual import SpectralResidualSaliency
-from gazejepa.saliency.learned import LearnedSaliency
 from gazejepa.saliency.random import RandomSaliency
 from gazejepa.saliency.resnet_saliency import ResNetSaliency
 from gazejepa.saliency.ijepa_saliency import IJepaSaliency
 
 __all__ = [
     "SaliencySource",
-    "CenterBiasDataFit",
     "CenterBiasParametric",
     "CenterBiasSaliency",
     "SpectralResidualSaliency",
-    "LearnedSaliency",
     "RandomSaliency",
     "ResNetSaliency",
     "IJepaSaliency",

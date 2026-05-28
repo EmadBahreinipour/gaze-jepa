@@ -23,7 +23,7 @@ FIND_NATIVE_W: int = 1280
 FIND_NATIVE_H: int = 720
 """Native resolution of FIND raw videos."""
 
-DEFAULT_HEATMAP_SIGMA: int = 30
+DEFAULT_HEATMAP_SIGMA: int = 20
 """Default Gaussian sigma (pixels at native resolution) for fixation heatmaps."""
 
 
@@ -63,7 +63,7 @@ def get_video_ids(data_root: str | os.PathLike[str]) -> list[str]:
 def get_split(
     data_root: str | os.PathLike[str], seed: int = 42,
 ) -> dict[str, list[str]]:
-    """Reproducible 50/6/6 split. Both authors must use the default seed to share it."""
+    """Reproducible 50/6/6 split."""
     all_vids = get_video_ids(data_root)
     if len(all_vids) != 62:
         raise RuntimeError(

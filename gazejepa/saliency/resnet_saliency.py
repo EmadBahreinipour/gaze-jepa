@@ -60,12 +60,6 @@ class ResNetSaliency(nn.Module, SaliencySource):
                 p.requires_grad = False
         self._backbone_frozen = True
 
-    def unfreeze_backbone(self) -> None:
-        for module in (self.stem, self.layer1, self.layer2, self.layer3):
-            for p in module.parameters():
-                p.requires_grad = True
-        self._backbone_frozen = False
-
     def train(self, mode: bool = True):
         super().train(mode)
         if mode and self._backbone_frozen:

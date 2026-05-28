@@ -35,8 +35,7 @@ dependencies:
   - pip
 
   - pip:
-      # Vision / eye-tracking (not on conda)
-      - opencv-contrib-python-headless   # ships cv2.saliency for SpectralResidualSaliency
-      - multimatch_gaze   # canonical Dewhurst-2012 MultiMatch
-      - einops            # used by Arash's saliency models
-      - transformers>=4.38 # IJepaModel (facebook/ijepa_vith14_1k)
+      - opencv-contrib-python-headless 
+      - multimatch_gaze  
+      - einops           
+      - transformers>=4.38

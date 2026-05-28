@@ -99,7 +99,7 @@ def build_saliency(
     if name == "spectral_residual":
         return SpectralResidualSaliency()
     if name == "center_bias":
-        return CenterBiasParametric(size=image_size)
+        return CenterBiasParametric(image_size=image_size)
     if name == "random":
         return RandomSaliency()
     raise ValueError(
